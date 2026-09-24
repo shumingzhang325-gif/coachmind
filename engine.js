@@ -414,6 +414,31 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
   const pt = (pose, j) => pose.map(f => (f && f[j] ? [f[j][0], f[j][1]] : [NaN, NaN]));
   function smooth2(xs, ys, fs, fc) { return [lowpass(xs, fs, fc), lowpass(ys, fs, fc)]; }
 
+  // ---------- 左右腿纠正 ----------
+  // 侧面拍摄时 MediaPipe 常把左右腿标签互换。逐帧比较“保持”和“互换”哪个更接近上一帧的位置，选更近的。
+  const LEG_PAIRS = [[25, 26], [27, 28], [29, 30], [31, 32]];
+  function unswapLegs(pose) {
+    const out = pose.map(f => (f ? f.map(p => p.slice()) : null));
+    let prev = null, swaps = 0;
+    for (let t = 0; t < out.length; t++) {
+      const f = out[t];
+      if (!f) continue;
+      if (prev) {
+        let keep = 0, swap = 0;
+        for (const [l, r] of LEG_PAIRS) {
+          keep += Math.hypot(f[l][0] - prev[l][0], f[l][1] - prev[l][1]) + Math.hypot(f[r][0] - prev[r][0], f[r][1] - prev[r][1]);
+          swap += Math.hypot(f[r][0] - prev[l][0], f[r][1] - prev[l][1]) + Math.hypot(f[l][0] - prev[r][0], f[l][1] - prev[r][1]);
+        }
+        if (swap < keep * 0.6) {
+          for (const [l, r] of LEG_PAIRS) { const tmp = f[l]; f[l] = f[r]; f[r] = tmp; }
+          swaps++;
+        }
+      }
+      prev = f;
+    }
+    return { pose: out, swaps };
+  }
+
   // ---------- 短跑 ----------
   function refine(tx, ty, seg, tolX, tolY, pad) {
     const [s, e] = seg, q = Math.floor((e - s) / 4), c0 = s + q, c1 = e - q;
@@ -425,24 +450,25 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     return [td, to];
   }
 
-  function analyzeSprint(pose, fs, TH, scale) {
-    const c = TH.sprint, n = pose.length;
+  function sprintBase(pose, fs, c) {
     const hx0 = col(pose, 23, 0).map((v, i) => (v + col(pose, 24, 0)[i]) / 2);
     const hy0 = col(pose, 23, 1).map((v, i) => (v + col(pose, 24, 1)[i]) / 2);
-    const [hx, hy] = smooth2(hx0, hy0, fs, c.filter_hz);
+    const [hx] = smooth2(hx0, hy0, fs, c.filter_hz);
     const hvx = derivative(hx, fs);
-    const runSpeed = median(hvx.map(Math.abs));
-    const dir = median(hvx) >= 0 ? 1 : -1;
-    const contacts = [];
-    const toes = {};
+    return { hx, runSpeed: median(hvx.map(Math.abs)), dir: median(hvx) >= 0 ? 1 : -1 };
+  }
+
+  function detectSprintContacts(pose, fs, c, base) {
+    const n = pose.length, contacts = [], debug = {};
     for (const side of ["left", "right"]) {
       const S = SIDES[side];
       const [tx, ty] = smooth2(col(pose, S.foot, 0), col(pose, S.foot, 1), fs, c.foot_filter_hz);
-      toes[side] = [tx, ty];
       const vx = derivative(lowpass(tx, fs, c.filter_hz), fs).map(Math.abs);
       const groundY = percentile(ty, 95);
       const legLen = median(pose.map(f => f ? Math.hypot(f[S.hip][0] - f[S.ankle][0], f[S.hip][1] - f[S.ankle][1]) : NaN));
-      const mask = ty.map((y, i) => y > groundY - c.ground_band_leg_ratio * legLen && vx[i] < c.stance_speed_ratio * runSpeed);
+      const nearY = groundY - c.ground_band_leg_ratio * legLen, slowV = c.stance_speed_ratio * base.runSpeed;
+      const mask = ty.map((y, i) => y > nearY && vx[i] < slowV);
+      debug[side] = { ty, vx, groundY, nearY, slowV };
       const minLen = Math.max(2, Math.round(c.min_contact_s * fs)), gap = Math.round(c.merge_gap_s * fs), pad = Math.round(0.03 * fs);
       for (const seg of segments(mask, minLen, gap)) {
         if (seg[0] === 0 || seg[1] === n - 1) continue;
@@ -451,7 +477,14 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
       }
     }
     contacts.sort((a, b) => a.td - b.td);
+    return { contacts, debug };
+  }
 
+  // 由触地列表（自动识别或教练手动标记）计算全部指标
+  function sprintFromContacts(pose, fs, TH, scale, contacts, base) {
+    base = base || sprintBase(pose, fs, TH.sprint);
+    const { hx, runSpeed, dir } = base;
+    contacts = contacts.slice().sort((a, b) => a.td - b.td);
     const steps = [];
     contacts.forEach((ct, k) => {
       const S = SIDES[ct.side], f = pose[ct.td], { td, to } = ct;
@@ -462,22 +495,20 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
         const sh = [(f[11][0] + f[12][0]) / 2, (f[11][1] + f[12][1]) / 2], hp = [(f[23][0] + f[24][0]) / 2, (f[23][1] + f[24][1]) / 2];
         st.trunk_lean_td_deg = r1(Math.atan2((sh[0] - hp[0]) * dir, hp[1] - sh[1]) * 180 / Math.PI);
       }
-      if (scale) st.touchdown_distance_m = r3((toe[td][0] - hx[td]) * dir * scale);
+      if (scale && isF(toe[td][0]) && isF(hx[td])) st.touchdown_distance_m = r3((toe[td][0] - hx[td]) * dir * scale);
       const nx = contacts[k + 1];
-      if (nx && nx.side !== ct.side) {
+      if (nx && nx.side !== ct.side && nx.td > to) {
         st.flight_time_s = r4((nx.td - to - 1) / fs);
         st.step_time_s = r4((nx.td - td) / fs);
         st.step_frequency_hz = r3(fs / (nx.td - td));
         if (scale) {
           const a = mean(toe.slice(td, to + 1).map(p => p[0]));
           const b = mean(pt(pose, SIDES[nx.side].foot).slice(nx.td, nx.to + 1).map(p => p[0]));
-          st.step_length_m = r3(Math.abs(b - a) * scale);
-          st.speed_mps = r2(st.step_length_m * st.step_frequency_hz);
+          if (isF(a) && isF(b)) { st.step_length_m = r3(Math.abs(b - a) * scale); st.speed_mps = r2(st.step_length_m * st.step_frequency_hz); }
         }
       }
       steps.push(st);
     });
-
     const summary = {};
     for (const key of ["contact_time_s", "flight_time_s", "step_frequency_hz", "step_length_m", "speed_mps", "touchdown_distance_m", "trunk_lean_td_deg", "knee_angle_td_deg"]) {
       const v = steps.map(s => s[key]).filter(isF);
@@ -486,12 +517,20 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     const L = steps.filter(s => s.side === "left").map(s => s.contact_time_s), R = steps.filter(s => s.side === "right").map(s => s.contact_time_s);
     if (L.length && R.length) { const l = mean(L), r = mean(R); summary.contact_asymmetry_pct = r1(Math.abs(l - r) / ((l + r) / 2) * 100); }
     summary.n_contacts = steps.length;
-    if (scale) summary.hip_speed_mps = r2(runSpeed * scale);
-
+    if (scale && isF(runSpeed)) summary.hip_speed_mps = r2(runSpeed * scale);
     const notes = [];
-    if (steps.length < 2) notes.push("识别到的完整触地少于 2 次：请让画面覆盖至少 3 步，机位固定、人物横向穿过。");
     if (!scale) notes.push("未标定比例尺，步长、速度、着地距离未计算。");
-    return { action: "sprint", fps: fs, steps, summary, notes, series: { hipX: hx, toes } };
+    return { action: "sprint", fps: fs, steps, summary, notes, series: { hipX: hx } };
+  }
+
+  function analyzeSprint(pose, fs, TH, scale) {
+    const fixed = unswapLegs(pose);
+    const base = sprintBase(fixed.pose, fs, TH.sprint);
+    const det = detectSprintContacts(fixed.pose, fs, TH.sprint, base);
+    const r = sprintFromContacts(fixed.pose, fs, TH, scale, det.contacts, base);
+    r.debug = det.debug; r.legSwaps = fixed.swaps; r.pose = fixed.pose;
+    if (r.steps.length < 2) r.notes.unshift("自动识别到的触地少于 2 次。可以在回放里逐帧找到着地和离地，用“手动标记”补上；也可以展开“识别过程”看原因。");
+    return r;
   }
 
   // ---------- 高翻：杠铃片模板跟踪（归一化互相关） ----------
@@ -638,6 +677,6 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
   function r3(v) { return Math.round(v * 1000) / 1000; } function r4(v) { return Math.round(v * 10000) / 10000; }
 
   const API = { median, percentile, lowpass, derivative, angle, segments, fillNaN, SIDES, SKELETON,
-    analyzeSprint, analyzeClean, PlateTracker, matchCards, LABELS, fmt, PLATE_DIAMETER_M: 0.45 };
+    analyzeSprint, sprintFromContacts, sprintBase, unswapLegs, analyzeClean, PlateTracker, matchCards, LABELS, fmt, PLATE_DIAMETER_M: 0.45 };
   if (typeof module !== "undefined" && module.exports) module.exports = API; else root.CM = API;
 })(typeof self !== "undefined" ? self : this);

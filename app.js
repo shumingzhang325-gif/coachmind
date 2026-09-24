@@ -33,10 +33,10 @@
   function db() {
     if (dbp) return dbp;
     dbp = new Promise((res, rej) => {
-      const r = indexedDB.open("coachmind", 1);
+      const r = indexedDB.open("coachmind", 2);
       r.onupgradeneeded = () => {
-        r.result.createObjectStore("athletes", { keyPath: "id" });
-        r.result.createObjectStore("analyses", { keyPath: "id" });
+        const d = r.result;
+        for (const n of ["athletes", "analyses", "files"]) if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, { keyPath: "id" });
       };
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
@@ -55,13 +55,14 @@
   const dbAll = name => store(name, "readonly", s => s.getAll());
   const dbPut = (name, obj) => store(name, "readwrite", s => s.put(obj));
   const dbDel = (name, id) => store(name, "readwrite", s => s.delete(id));
+  const dbGet = (name, id) => store(name, "readonly", s => s.get(id));
 
   // ---------------- 视图切换 ----------------
   const S = {};                // 当前分析的状态
   let viewStack = ["home"];
   const VIEW_META = {
     home: { title: "", step: 0 }, new: { title: "选择视频", step: 1 }, calib: { title: "片段与标定", step: 2 },
-    process: { title: "分析", step: 3 }, result: { title: "分析结果", step: 0 },
+    process: { title: "分析", step: 3 }, result: { title: "分析结果", step: 0 }, athlete: { title: "运动员", step: 0 },
   };
   function show(v, push = true) {
     document.querySelectorAll("section.view").forEach(s => s.classList.toggle("on", s.id === "v-" + v));
@@ -73,12 +74,14 @@
     $("stepper").hidden = !m.step;
     $("stepper").querySelectorAll("i").forEach((el, k) => el.classList.toggle("on", k < m.step));
     window.scrollTo(0, 0);
-    if (v === "home") { viewStack = ["home"]; stopPlayback(); renderHome(); }
+    $("bar").hidden = v === "home";
+    if (v === "home") { viewStack = ["home"]; stopPlayback(); renderHome(); renderPeople(); renderModelState(); if (cover) requestAnimationFrame(() => cover.resize()); }
   }
   $("backBtn").onclick = () => {
     if (S.processing) { S.cancel = true; return; }
     viewStack.pop();
     const prev = viewStack[viewStack.length - 1] || "home";
+    if (prev === "athlete" && A.cur) { openAthlete(A.cur.id, A.pane); return; }
     show(prev === "process" ? "calib" : prev, false);
   };
 
@@ -89,7 +92,6 @@
     $("today").innerHTML = `<b>${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}</b>星期${wk}`;
   }
   async function renderHome() {
-    renderToday();
     const [athletes, analyses] = await Promise.all([dbAll("athletes"), dbAll("analyses")]);
     const chips = $("athleteFilter");
     chips.innerHTML = athletes.length > 1 ? [`<button aria-pressed="${!athleteFilter}" data-a="">全部</button>`]
@@ -362,35 +364,84 @@
 
   // ---------------- 姿态模型 ----------------
   let landmarkerP = null, loadLog = [];
-  const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + " 超时")), ms))]);
+  const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + "超时")), ms))]);
+  const stageErr = stage => Object.assign(new Error(stage), { stage });
+  const MODEL_MIN_BYTES = 1_000_000;
+
+  // 第 2 步：拿到模型文件（本机已保存 → 你的网站 → Google），成功后存进本机
+  async function getModelBytes(onStatus) {
+    try { const rec = await dbGet("files", "pose_model"); if (rec && rec.bytes && rec.bytes.byteLength > MODEL_MIN_BYTES) return rec.bytes; } catch (e) { /* 继续 */ }
+    for (const m of MODEL_SOURCES) {
+      onStatus && onStatus(`正在下载姿态模型（${m.name}）`);
+      try {
+        const r = await withTimeout(fetch(m.url, { cache: "no-store" }), 90000, "下载");
+        if (!r.ok) { loadLog.push(`模型　${m.name}：${r.status === 404 ? "找不到文件（404）。说明这个文件还没有上传到仓库" : "服务器返回 " + r.status}`); continue; }
+        const buf = await withTimeout(r.arrayBuffer(), 120000, "下载");
+        if (buf.byteLength < MODEL_MIN_BYTES) { loadLog.push(`模型　${m.name}：文件只有 ${Math.round(buf.byteLength / 1024)} KB，不完整`); continue; }
+        await dbPut("files", { id: "pose_model", bytes: buf, from: m.name, saved: new Date().toISOString() });
+        return buf;
+      } catch (e) { loadLog.push(`模型　${m.name}：连不上（${e.message || e}）`); }
+    }
+    throw stageErr("model");
+  }
+
   function getLandmarker(onStatus) {
     if (landmarkerP) return landmarkerP;
     loadLog = [];
     landmarkerP = (async () => {
-      let lib = null, src = null;
+      // 第 1 步：运算库
+      let lib = null, libSrc = null;
       for (const c of LIB_SOURCES) {
         onStatus && onStatus(`正在加载运算库（${c.name}）`);
-        try { lib = await withTimeout(import(c.bundle), 20000, "下载"); src = c; break; }
-        catch (e) { loadLog.push(`运算库 · ${c.name}：${e.message || e}`); }
+        try { lib = await withTimeout(import(c.bundle), 20000, "下载"); libSrc = c; break; }
+        catch (e) { loadLog.push(`运算库　${c.name}：${e.message || e}`); }
       }
-      if (!lib) throw new Error("运算库");
-      const fileset = { wasmLoaderPath: `${src.wasm}/vision_wasm_internal.js`, wasmBinaryPath: `${src.wasm}/vision_wasm_internal.wasm` };
-      for (const m of MODEL_SOURCES) {
+      if (!lib) throw stageErr("lib");
+      // 第 2 步：模型文件
+      const bytes = await getModelBytes(onStatus);
+      // 第 3 步：启动运行环境（wasm），先用和运算库同一来源的
+      const wasmSrcs = [libSrc].concat(LIB_SOURCES.filter(c => c !== libSrc));
+      for (const w of wasmSrcs) {
+        const fileset = { wasmLoaderPath: `${w.wasm}/vision_wasm_internal.js`, wasmBinaryPath: `${w.wasm}/vision_wasm_internal.wasm` };
         for (const delegate of ["GPU", "CPU"]) {
-          onStatus && onStatus(`正在加载姿态模型（${m.name}${delegate === "CPU" ? "，兼容模式" : ""}）`);
+          onStatus && onStatus(`正在启动识别（${w.name}${delegate === "CPU" ? "，兼容模式" : ""}）`);
           try {
             return await withTimeout(lib.PoseLandmarker.createFromOptions(fileset, {
-              baseOptions: { modelAssetPath: m.url, delegate }, runningMode: "VIDEO", numPoses: 1,
+              baseOptions: { modelAssetBuffer: new Uint8Array(bytes), delegate }, runningMode: "VIDEO", numPoses: 1,
               minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
-            }), 60000, "加载");
-          } catch (e) { loadLog.push(`模型 · ${m.name} · ${delegate}：${e.message || e}`); }
+            }), 60000, "启动");
+          } catch (e) { loadLog.push(`运行环境　${w.name}　${delegate}：${e.message || e}`); }
         }
       }
-      throw new Error("模型");
+      throw stageErr("runtime");
     })();
     landmarkerP.catch(() => { landmarkerP = null; });
     return landmarkerP;
   }
+
+  // 从“文件”App 导入模型
+  async function importModelFile(file) {
+    if (!file) return false;
+    const buf = await file.arrayBuffer();
+    if (buf.byteLength < MODEL_MIN_BYTES) { toast("这个文件太小，不是姿态模型"); return false; }
+    await dbPut("files", { id: "pose_model", bytes: buf, from: "手动导入", saved: new Date().toISOString() });
+    landmarkerP = null;
+    toast(`模型已保存到本机（${(buf.byteLength / 1e6).toFixed(1)} MB）`);
+    renderModelState();
+    return true;
+  }
+  async function renderModelState() {
+    try {
+      const rec = await dbGet("files", "pose_model");
+      $("modelState").innerHTML = rec && rec.bytes ? `<b>已保存在本机</b>　${(rec.bytes.byteLength / 1e6).toFixed(1)} MB，来自${esc(rec.from || "")}` : "还没有保存。第一次分析时会自动下载";
+    } catch (e) { $("modelState").textContent = "无法读取"; }
+  }
+  $("modelFile").onchange = async e => {
+    const ok = await importModelFile(e.target.files[0]);
+    e.target.value = "";
+    if (ok && $("v-process").classList.contains("on")) runAnalysis();
+  };
+
   // ---------------- 逐帧分析 ----------------
   const pc = $("procCanvas");
   async function runAnalysis() {
@@ -405,14 +456,21 @@
     try { lm = await getLandmarker(t => { $("procStatus").textContent = t + "…"; }); }
     catch (e) {
       S.processing = false;
-      const which = e.message === "运算库" ? "运算库" : "姿态模型";
+      const stage = e.stage || "runtime";
       $("procHead").hidden = true;
       $("procError").hidden = false;
-      $("procError").innerHTML = `<h3>${which}下载失败</h3>
-        <p>第一次分析需要下载${which}，之后会存在手机里离线使用。现在所有下载来源都连不上，常见原因是国内网络访问不了国外的文件服务器。</p>
-        <ol><li>最稳的办法：把离线文件放进你的 GitHub 仓库（压缩包里的“离线文件说明”），以后不再依赖外网</li>
-        <li>临时办法：打开能访问国外网站的网络后点“重试”</li></ol>
-        <details style="margin-top:10px"><summary style="color:var(--muted);font-size:14px;cursor:pointer">技术细节</summary><code>${loadLog.map(esc).join("<br>")}</code></details>`;
+      const detail = `<details style="margin-top:12px"><summary style="color:var(--muted);font-size:14px;cursor:pointer">技术细节（截图发给开发者）</summary><code>${loadLog.map(esc).join("<br>") || esc(e.message || e)}</code></details>`;
+      const T = {
+        lib: `<h3>运算库没有加载成功</h3><p>App 从你的网站和几个镜像都没拿到运算库文件。</p>
+          <ol><li>确认 GitHub 仓库里有 vision_bundle.mjs、vision_wasm_internal.js、vision_wasm_internal.wasm 三个文件（由“下载离线文件.bat”下载）</li><li>或者打开能访问国外网站的网络后点“重试”</li></ol>`,
+        model: `<h3>缺少姿态模型文件</h3><p>运算库已经加载好了，只差模型文件 pose_landmarker_full.task（约 9 MB）。${loadLog.some(l => l.includes("404")) ? "你的 GitHub 仓库里还没有这个文件。" : ""}</p>
+          <ol><li><b>最快：</b>在能访问国外网站的网络下，用 Safari 打开首页“姿态识别模型”里的地址，下载到“文件”App，然后点下面的“从文件导入”</li>
+          <li>或者把这个文件上传到 GitHub 仓库，和 index.html 放在一起</li><li>导入或上传一次后会保存在手机里，以后不用再下载</li></ol>
+          <label class="btn go" for="modelFile" style="margin-top:14px;width:100%">从文件导入模型</label>`,
+        runtime: `<h3>识别程序启动失败</h3><p>运算库和模型都有了，但运行环境没有启动。通常是 vision_wasm_internal.wasm 文件缺失或不完整，也可能是系统版本太旧（需要 iOS 16.4 以上）。</p>
+          <ol><li>确认仓库里的 vision_wasm_internal.js 和 vision_wasm_internal.wasm 都已上传</li><li>点“重试”</li></ol>`,
+      };
+      $("procError").innerHTML = T[stage] + detail;
       $("retryProc").hidden = false; $("cancelProc").textContent = "返回";
       return;
     }
@@ -467,6 +525,7 @@
     }
     if (S.action === "clean") { const [c, e] = S.calibPts; scale = CM.PLATE_DIAMETER_M / (2 * Math.hypot(e[0] - c[0], e[1] - c[1])); }
     const fs = S.fpsReal;
+    S.scale = scale;
     S.result = S.action === "sprint" ? CM.analyzeSprint(S.pose, fs, TH, scale)
       : CM.analyzeClean(S.bar, fs, scale, TH, detected > 0.5 ? S.pose : null);
     if (detected < 0.8) S.result.notes.unshift(`只有 ${Math.round(detected * 100)}% 的帧识别到人体，结果可能不完整。检查光线、遮挡和人物大小。`);
@@ -515,6 +574,12 @@
     clean: ["peak_bar_velocity_mps", "max_bar_height_m", "drop_under_m"],
   };
   function showResult(live) {
+    $("playerWrap").hidden = !live; $("noVideo").hidden = live;
+    renderResultPanels();
+    show("result");
+    if (live) setupPlayer();
+  }
+  function renderResultPanels() {
     const R = S.result;
     const hitMetrics = new Set(S.hits.map(h => h.condition.metric));
     const d = new Date(S.date || Date.now());
@@ -540,15 +605,14 @@
     $("deleteBtn").hidden = !S.savedId;
     $("saveBtn").textContent = S.savedId ? "更新" : "保存";
 
-    $("playerWrap").hidden = !live; $("noVideo").hidden = live;
     contactByFrame = null;
     if (S.action === "sprint" && R.steps) {
       contactByFrame = new Map();
       R.steps.forEach(s => { for (let f = s.touchdown_frame; f <= s.toeoff_frame; f++) contactByFrame.set(f, s.side); });
     }
     renderStrip();
-    show("result");
-    if (live) setupPlayer();
+    renderCompare(); renderDebug(); setupMarking();
+    $("toPlanBtn").hidden = !S.hits.length || !S.athleteId;
   }
 
   function renderCards() {
@@ -649,7 +713,7 @@
     const w = pv.clientWidth, h = pv.clientHeight, dpr = window.devicePixelRatio || 1;
     if (ov.width !== Math.round(w * dpr)) { ov.width = Math.round(w * dpr); ov.height = Math.round(h * dpr); }
     octx.clearRect(0, 0, ov.width, ov.height);
-    drawOverlay(octx, S.pose[i], { scale: ov.width / S.W, bar: S.bar, i, contactSide: contactByFrame && contactByFrame.get(i) });
+    drawOverlay(octx, ((S.result && S.result.pose) || S.pose)[i], { scale: ov.width / S.W, bar: S.bar, i, contactSide: contactByFrame && contactByFrame.get(i) });
     $("playScrub").value = i;
     $("playHead").style.left = (S.N > 1 ? i / (S.N - 1) * 100 : 0) + "%";
     $("frameInfo").textContent = `第 ${i + 1} 帧，共 ${S.N} 帧`;
@@ -769,7 +833,366 @@
     const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = file.name; a.click();
   };
 
+  // ================= 运动员：画像、计划、档案 =================
+  const A = { cur: null, pane: "profile", week: null, checkin: false };
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const daysTo = d => d ? Math.ceil((new Date(d) - new Date(todayStr())) / 864e5) : null;
+  const f2 = v => (Number.isFinite(v) ? v.toFixed(2) : "–");
+  const refHtml = keys => keys.filter(k => COACH.REFS[k]).map(k => { const r = COACH.REFS[k]; return `<div>${esc(r.t)}${r.doi ? ` <a href="https://doi.org/${r.doi}" target="_blank" rel="noopener">doi.org/${r.doi}</a>` : ""}</div>`; }).join("");
+
+  async function latestVideo(athleteId) {
+    const all = (await dbAll("analyses")).filter(a => a.athleteId === athleteId && a.action === "sprint" && a.summary && Number.isFinite(a.summary.contact_time_s));
+    all.sort((a, b) => b.id - a.id);
+    return all[0] ? all[0].summary : null;
+  }
+  async function computeAthlete(a) {
+    const video = await latestVideo(a.id);
+    const P = COACH.profile(a, video);
+    return { video, P, I: COACH.insights(a, P, video), PL: COACH.plan(a, P), R: COACH.readiness(a) };
+  }
+  function currentWeekIndex(PL) {
+    const t = new Date(todayStr());
+    let idx = 0;
+    PL.weeks.forEach((w, i) => { if (new Date(w.start) <= t) idx = i; });
+    return idx;
+  }
+
+  async function renderPeople() {
+    const athletes = (await dbAll("athletes")).sort((a, b) => a.name.localeCompare(b.name, "zh"));
+    const cards = athletes.map(a => {
+      const R = COACH.readiness(a), d = daysTo(a.goalDate);
+      const line = Number.isFinite(a.pb) && Number.isFinite(a.goalTime) ? `${a.pb} → ${a.goalTime} 秒` : "点开完善档案和目标";
+      return `<button class="person" data-id="${a.id}"><span><span class="nm"><i class="dot ${R.level}"></i>${esc(a.name)}</span><span class="ln">${line}</span></span>
+        ${d != null && d >= 0 ? `<span class="cd">${d}<small>天后目标日</small></span>` : "<span></span>"}</button>`;
+    });
+    cards.push(`<button class="person add" id="addPerson">＋ 添加运动员</button>`);
+    $("people").innerHTML = cards.join("");
+    $("people").querySelectorAll(".person[data-id]").forEach(b => b.onclick = () => openAthlete(b.dataset.id));
+    $("addPerson").onclick = async () => {
+      const a = { id: "a" + Date.now(), name: "新运动员", sex: "男", sessionsPerWeek: 4, tests: [], wellness: [], created: new Date().toISOString() };
+      await dbPut("athletes", a);
+      openAthlete(a.id, "info");
+    };
+  }
+
+  async function openAthlete(id, pane) {
+    const a = (await dbAll("athletes")).find(x => x.id === id);
+    if (!a) return;
+    A.cur = a; A.pane = pane || "profile"; A.week = null; A.checkin = false;
+    await renderAthlete();
+    show("athlete");
+  }
+  async function saveAthlete() { await dbPut("athletes", A.cur); }
+
+  async function renderAthlete() {
+    const a = A.cur, C = await computeAthlete(a);
+    A.C = C;
+    const d = daysTo(a.goalDate);
+    $("aBoard").innerHTML = `<div class="who"><span>${esc(a.name)}　100 米</span><span>${a.goalDate ? a.goalDate.replace(/-/g, "/") : "未设目标日期"}</span></div>
+      <div class="main"><b>${Number.isFinite(a.goalTime) ? a.goalTime.toFixed(2) : "–"}</b><small>s</small></div>
+      <div class="lbl">目标成绩</div>
+      <div class="sub">
+        <div><b>${Number.isFinite(a.pb) ? a.pb.toFixed(2) : "–"}<small>s</small></b><span class="lbl">当前最好</span></div>
+        <div><b>${d != null && d >= 0 ? d : "–"}<small>天</small></b><span class="lbl">${Number.isFinite(C.P.improvePct) ? `需要快 ${C.P.improvePct.toFixed(1)}%` : "距目标日"}</span></div>
+      </div>`;
+    renderAthleteToday();
+    document.querySelectorAll(".tabs button").forEach(b => { b.setAttribute("aria-pressed", b.dataset.pane === A.pane); b.onclick = () => { A.pane = b.dataset.pane; renderPanes(); }; });
+    renderPanes();
+  }
+  function renderPanes() {
+    document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-pressed", b.dataset.pane === A.pane));
+    ["profile", "plan", "info"].forEach(p => $("p-" + p).classList.toggle("on", p === A.pane));
+    if (A.pane === "profile") renderProfilePane();
+    if (A.pane === "plan") renderPlanPane();
+    if (A.pane === "info") renderInfoPane();
+  }
+
+  // ----- 今日 -----
+  function renderAthleteToday() {
+    const a = A.cur, { PL, R } = A.C;
+    const wi = currentWeekIndex(PL), w = PL.weeks[wi];
+    const dow = (new Date().getDay() + 6) % 7;
+    const day = w && new Date(w.start) <= new Date(todayStr()) ? w.days.find(x => x.dow === dow) : null;
+    const sess = day ? day.blocks.map(b => `<div class="bk"><b>${esc(b.t)}</b>${b.items.map(i => `<div>${esc(i)}</div>`).join("")}</div>`).join("") : `<div class="bk"><b>今天没有安排训练</b><div>休息或轻松活动</div></div>`;
+    const lv = { green: "状态良好", yellow: "注意", red: "需要恢复", none: "今天还没打卡" }[R.level];
+    const last = (a.wellness || []).slice(-1)[0] || {};
+    const cur = (a.wellness || []).find(x => x.date === todayStr()) || { sleep: last.sleep || 8, fatigue: 2, soreness: 2 };
+    const scale = (k, v) => `<div class="scale" data-k="${k}">${[1, 2, 3, 4, 5].map(n => `<button data-v="${n}" aria-pressed="${v === n}">${n}</button>`).join("")}</div>`;
+    $("aToday").innerHTML = `<div class="hd"><i class="dot ${R.level}"></i><span class="grow">今天　${lv}</span><button class="btn sm" id="ciBtn">${A.checkin ? "收起" : R.level === "none" ? "打卡" : "修改"}</button></div>
+      <p>${esc(R.text)}${R.reasons && R.reasons.length ? `（${R.reasons.join("，")}）` : ""}</p>
+      ${A.checkin ? `<div class="checkin">
+        <div class="inrow"><label>昨晚睡眠（小时）<input type="number" inputmode="decimal" id="ciSleep" value="${cur.sleep}" step="0.5" min="0" max="14"></label></div>
+        <div class="q"><span>疲劳程度（1 很轻松，5 很累）</span>${scale("fatigue", cur.fatigue)}</div>
+        <div class="q"><span>肌肉酸痛（1 没有，5 很痛）</span>${scale("soreness", cur.soreness)}</div>
+        <div class="inrow"><label>训练 RPE（0–10，训练后填）<input type="number" inputmode="decimal" id="ciRpe" value="${cur.rpe ?? ""}" min="0" max="10"></label><label>训练时长（分钟）<input type="number" inputmode="numeric" id="ciMin" value="${cur.minutes ?? ""}" min="0"></label></div>
+        <button class="btn go" id="ciSave">保存今日状态</button></div>` : ""}
+      <div class="sess"><b style="font-size:15px">${w ? `第 ${wi + 1} 周　${w.phaseName}${w.deload ? "　调整周" : ""}` : ""}</b>${sess}</div>`;
+    $("ciBtn").onclick = () => { A.checkin = !A.checkin; renderAthleteToday(); };
+    if (A.checkin) {
+      const vals = { fatigue: cur.fatigue, soreness: cur.soreness };
+      $("aToday").querySelectorAll(".scale").forEach(s => s.querySelectorAll("button").forEach(b => b.onclick = () => {
+        vals[s.dataset.k] = Number(b.dataset.v);
+        s.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+      }));
+      $("ciSave").onclick = async () => {
+        const e = { date: todayStr(), sleep: Number($("ciSleep").value) || 0, fatigue: vals.fatigue, soreness: vals.soreness };
+        const rpe = Number($("ciRpe").value), mins = Number($("ciMin").value);
+        if ($("ciRpe").value !== "" && rpe >= 0) e.rpe = rpe;
+        if (mins > 0) e.minutes = mins;
+        a.wellness = (a.wellness || []).filter(x => x.date !== e.date).concat([e]).sort((x, y) => x.date < y.date ? -1 : 1);
+        await saveAthlete(); A.checkin = false; toast("已保存今日状态");
+        await renderAthlete();
+      };
+    }
+  }
+
+  // ----- 画像 -----
+  function radarSvg(radar) {
+    const n = radar.length, cx = 170, cy = 158, R = 112, maxS = 120;
+    const ang = i => -Math.PI / 2 + i * 2 * Math.PI / n;
+    const P = (i, s) => [cx + Math.cos(ang(i)) * R * s / maxS, cy + Math.sin(ang(i)) * R * s / maxS];
+    const ring = s => radar.map((_, i) => P(i, s).map(v => v.toFixed(1)).join(",")).join(" ");
+    const curPts = radar.map((x, i) => P(i, Number.isFinite(x.score) ? x.score : 0).map(v => v.toFixed(1)).join(",")).join(" ");
+    const spokes = radar.map((_, i) => { const [x, y] = P(i, maxS); return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--rule)"/>`; }).join("");
+    const labels = radar.map((x, i) => {
+      const [lx, ly] = P(i, maxS + 22), anchor = Math.abs(lx - cx) < 8 ? "middle" : lx > cx ? "start" : "end";
+      const s = Number.isFinite(x.score) ? `${x.score}` : "缺数据";
+      return `<text x="${lx}" y="${ly}" text-anchor="${anchor}" font-size="14" fill="var(--ink)" font-weight="600">${x.name}</text>
+        <text x="${lx}" y="${ly + 16}" text-anchor="${anchor}" font-size="13" fill="${Number.isFinite(x.score) ? (x.score < 90 ? "var(--red)" : "var(--muted)") : "var(--muted)"}" font-family="DIN Alternate, Bahnschrift, sans-serif">${s}</text>`;
+    }).join("");
+    const dots = radar.map((x, i) => Number.isFinite(x.score) ? `<circle cx="${P(i, x.score)[0]}" cy="${P(i, x.score)[1]}" r="4" fill="var(--green)"/>` : "").join("");
+    return `<svg viewBox="-28 0 396 330" role="img" aria-label="能力雷达">${spokes}
+      <polygon points="${ring(50)}" fill="none" stroke="var(--rule)"/>
+      <polygon points="${ring(100)}" fill="none" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="5 4"/>
+      <polygon points="${curPts}" fill="color-mix(in srgb, var(--green) 22%, transparent)" stroke="var(--green)" stroke-width="2.5"/>${dots}${labels}</svg>
+      <div class="legend"><span><i style="background:var(--green)"></i>当前</span><span><i style="background:var(--ink)"></i>目标模型 = 100</span></div>`;
+  }
+  function renderProfilePane() {
+    const a = A.cur, { P, I, video } = A.C, E = COACH.ELITE;
+    const needGoal = !Number.isFinite(a.goalTime) || !Number.isFinite(a.pb);
+    const rows = [
+      ["最高速度 m/s", P.cur.vmax, P.tgt.vmax, E.v],
+      ["30 米起跑 s", P.cur.t30, P.tgt.t30, null],
+      ["30 米行进间 s", Number.isFinite(P.cur.vmax) ? 30 / P.cur.vmax : null, P.tgt.flying30, 30 / E.v],
+      ["触地时间 s", video && video.contact_time_s, P.targets.ct, E.ct],
+      ["腾空时间 s", video && video.flight_time_s, null, E.ft],
+      ["步长 m", video && video.step_length_m, P.combos && P.combos.slAtSameSF, E.sl],
+      ["步频 步/秒", video && video.step_frequency_hz, P.combos && P.combos.sfAtSameSL, E.sf],
+    ];
+    const fmt3 = (v, k) => Number.isFinite(v) ? (k.includes("触地") || k.includes("腾空") ? v.toFixed(3) : v.toFixed(2)) : "–";
+    $("p-profile").innerHTML = `
+      ${needGoal ? `<div class="msg"><b>先完善档案：</b>填写 100 米最好成绩、目标成绩和目标日期，才能计算目标模型和训练计划。<button class="btn sm" style="margin-left:8px" id="goInfo">去填写</button></div>` : ""}
+      <h3 class="sec">能力画像</h3>
+      <div class="radarbox">${radarSvg(P.radar)}</div>
+      <ul class="axes">${P.radar.map(x => `<li><span class="an">${x.name}</span><span class="as ${Number.isFinite(x.score) && x.score < 90 ? "low" : ""}">${Number.isFinite(x.score) ? x.score : "–"}</span>
+        <span class="ad">${x.cur ? `现在 ${esc(x.cur)}　目标 ${esc(x.tgt || "–")}` : `需要：${esc(x.need)}`}</span></li>`).join("")}</ul>
+      <h3 class="sec">与目标模型、优秀运动员对比</h3>
+      <table class="cmp"><tr><th></th><th>现在</th><th>目标</th><th>${E.name}</th></tr>
+        ${rows.map(r => `<tr><td>${r[0]}</td><td>${fmt3(r[1], r[0])}</td><td class="tg">${fmt3(r[2], r[0])}</td><td>${fmt3(r[3], r[0])}</td></tr>`).join("")}</table>
+      <p class="lead" style="margin-top:8px;font-size:13px">目标由短跑单指数速度模型从目标成绩倒推（未计后程减速，实际需求略高）；最高速度来源：${esc(P.cur.vmaxSrc || "暂无")}。${E.name}数据为${E.note}。</p>
+      <details class="ins" style="padding:10px 18px"><summary style="font-size:13px;color:var(--muted)">模型与数据来源</summary>${refHtml(["samozino2016", "coh2018"])}</details>
+      <h3 class="sec">多学科分析</h3>
+      ${I.map(x => `<div class="ins"><div class="ar">${esc(x.area)}</div><h4>${esc(x.title)}</h4><ul>${x.bullets.map(b => `<li>${esc(b)}</li>`).join("")}</ul>
+        ${x.refs.length || x.level ? `<details><summary>依据${x.level ? "　" + esc(x.level) : ""}</summary>${refHtml(x.refs)}</details>` : ""}</div>`).join("")}`;
+    const gi = $("goInfo"); if (gi) gi.onclick = () => { A.pane = "info"; renderPanes(); };
+  }
+
+  // ----- 计划 -----
+  function renderPlanPane() {
+    const { PL } = A.C, now = currentWeekIndex(PL);
+    if (A.week == null) A.week = now;
+    const w = PL.weeks[A.week];
+    const phaseColor = { gp: "var(--ph1)", sp: "var(--ph2)", cp: "var(--ph3)", taper: "var(--ph4)" };
+    const t = new Date(todayStr());
+    $("p-plan").innerHTML = `
+      <h3 class="sec">${PL.total} 周计划</h3>
+      <div class="weeks">${PL.weeks.map((x, i) => `<button class="wk ${x.phase} ${x.deload ? "deload" : ""} ${i === now ? "now" : ""}" data-i="${i}" aria-pressed="${i === A.week}">${i + 1}${x.test ? `<span class="t">测</span>` : ""}</button>`).join("")}</div>
+      <div class="phases">${PL.phases.map(p => `<span><i style="background:${phaseColor[p.key]}"></i>${p.name} ${p.weeks} 周</span>`).join("")}<span>斜纹 = 调整周　测 = 测试</span></div>
+      <div class="wkhead"><b>第 ${A.week + 1} 周　${w.phaseName}${w.deload ? "　调整周" : ""}</b><span>${w.start.slice(5).replace("-", "/")} 起</span></div>
+      <p class="lead" style="margin:-4px 0 12px">${esc(PL.phases.find(p => p.key === w.phase).goal)}${w.deload ? "。本周训练量约为平时的 60%，让身体吸收训练效果" : ""}</p>
+      ${w.days.map(d => { const date = new Date(w.start); date.setDate(date.getDate() + d.dow); const isToday = date.toISOString().slice(0, 10) === todayStr();
+        return `<div class="day ${isToday ? "today-day" : ""}"><div class="dn">${d.day}<small>${date.getMonth() + 1}/${date.getDate()}</small></div><div>${d.blocks.map(b => `<div class="bk"><b>${esc(b.t)}</b>${b.items.map(i => `<div>${esc(i)}</div>`).join("")}</div>`).join("")}</div></div>`; }).join("")}
+      ${PL.focus.length ? `<div class="msg ok" style="margin-top:12px"><b>当前重点：</b>${PL.focus.map(f => ({ speed: "最高速度", accel: "加速", se: "速度耐力", strength: "力量", power: "爆发力", tech: "技术", recovery: "恢复", reactive: "反应力量" }[f] || f)).join("、")}（来自能力画像短板和视频诊断）</div>` : ""}
+      <p class="lead" style="font-size:13px;margin-top:12px">计划按周期化原则从目标日期倒推生成，是模板建议，需要教练审核调整。每个测试周录入新成绩后，画像和计划会自动更新。</p>
+      <details class="ins" style="padding:10px 18px"><summary style="font-size:13px;color:var(--muted)">依据</summary>${refHtml(PL.refs)}</details>`;
+    $("p-plan").querySelectorAll(".wk").forEach(b => b.onclick = () => { A.week = Number(b.dataset.i); renderPlanPane(); });
+    const nowEl = $("p-plan").querySelector(".wk.now"); if (nowEl) nowEl.scrollIntoView({ block: "nearest", inline: "center" });
+  }
+
+  // ----- 档案 -----
+  function renderInfoPane() {
+    const a = A.cur, tg = COACH.profile(a, null).targets;
+    const tests = (a.tests || []).slice().sort((x, y) => x.date < y.date ? 1 : -1);
+    $("p-info").innerHTML = `
+      <h3 class="sec">基本信息</h3>
+      <div class="group form">
+        <div class="row"><label>姓名</label><input data-f="name" value="${esc(a.name)}"></div>
+        <div class="row"><label>性别</label><select data-f="sex"><option ${a.sex !== "女" ? "selected" : ""}>男</option><option ${a.sex === "女" ? "selected" : ""}>女</option></select></div>
+        <div class="row"><label>身高</label><input class="n" type="number" inputmode="decimal" data-f="height_cm" value="${a.height_cm ?? ""}"><span class="unit">cm</span></div>
+        <div class="row"><label>体重</label><input class="n" type="number" inputmode="decimal" data-f="weight_kg" value="${a.weight_kg ?? ""}"><span class="unit">kg</span></div>
+      </div>
+      <h3 class="sec">成绩与目标</h3>
+      <div class="group form">
+        <div class="row"><label>100 米最好成绩</label><input class="n" type="number" inputmode="decimal" step="0.01" data-f="pb" value="${a.pb ?? ""}"><span class="unit">s</span></div>
+        <div class="row"><label>目标成绩</label><input class="n" type="number" inputmode="decimal" step="0.01" data-f="goalTime" value="${a.goalTime ?? ""}"><span class="unit">s</span></div>
+        <div class="row"><label>目标日期</label><input type="date" data-f="goalDate" value="${a.goalDate || ""}"></div>
+        <div class="row"><label>每周训练次数</label><select data-f="sessionsPerWeek">${[3, 4, 5, 6].map(n => `<option ${Number(a.sessionsPerWeek || 4) === n ? "selected" : ""}>${n}</option>`).join("")}</select></div>
+      </div>
+      <h3 class="sec">测试成绩</h3>
+      <div class="group">
+        <div class="addtest"><select id="tType">${Object.entries(COACH.TESTS).map(([k, t]) => `<option value="${k}">${t.name}</option>`).join("")}</select>
+          <input type="number" inputmode="decimal" step="0.01" id="tVal" placeholder="成绩"><input type="date" id="tDate" value="${todayStr()}"><button class="btn go sm" id="tAdd">添加</button></div>
+        <ul class="tests">${tests.length ? tests.map(t => `<li><span class="tn">${COACH.TESTS[t.type] ? COACH.TESTS[t.type].name : t.type}</span><span class="tv">${t.value}<small style="font-size:12px;color:var(--muted)"> ${COACH.TESTS[t.type] ? COACH.TESTS[t.type].unit : ""}</small></span><span class="td">${t.date.slice(2).replace(/-/g, "/")}</span><button class="x" data-del="${t.id}" aria-label="删除">×</button></li>`).join("")
+          : `<li style="color:var(--muted);font-size:14px">还没有测试成绩。建议先测：30 米行进间跑、30 米起跑、立定跳远、深蹲 1RM。</li>`}</ul>
+      </div>
+      <h3 class="sec">参考目标（经验值，可按老师意见修改）</h3>
+      <div class="group form">
+        <div class="row"><label>深蹲 / 体重</label><input class="n" type="number" inputmode="decimal" step="0.1" data-t="squat_ratio" value="${tg.squat_ratio}"><span class="unit">倍</span></div>
+        <div class="row"><label>立定跳远</label><input class="n" type="number" inputmode="decimal" step="0.05" data-t="slj" value="${tg.slj}"><span class="unit">m</span></div>
+        <div class="row"><label>途中跑触地时间</label><input class="n" type="number" inputmode="decimal" step="0.005" data-t="ct" value="${tg.ct}"><span class="unit">s</span></div>
+      </div>
+      <button class="danger" id="delAthlete">删除这名运动员</button>`;
+    const P = $("p-info");
+    P.querySelectorAll("[data-f]").forEach(el => el.onchange = async () => {
+      const f = el.dataset.f, num = ["height_cm", "weight_kg", "pb", "goalTime", "sessionsPerWeek"].includes(f);
+      a[f] = num ? (el.value === "" ? undefined : Number(el.value)) : el.value.trim();
+      if (f === "name" && !a.name) a.name = "未命名";
+      await saveAthlete(); A.C = await computeAthlete(a); renderBoardOnly(); toast("已保存");
+    });
+    P.querySelectorAll("[data-t]").forEach(el => el.onchange = async () => {
+      a.targets = Object.assign({}, a.targets || {}, { [el.dataset.t]: Number(el.value) });
+      await saveAthlete(); toast("已保存");
+    });
+    $("tAdd").onclick = async () => {
+      const v = Number($("tVal").value);
+      if (!(v > 0)) { toast("请输入成绩"); return; }
+      a.tests = (a.tests || []).concat([{ id: "t" + Date.now(), type: $("tType").value, value: v, date: $("tDate").value || todayStr() }]);
+      await saveAthlete(); toast("已添加，画像和计划已更新"); A.C = await computeAthlete(a); renderInfoPane(); renderBoardOnly();
+    };
+    P.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+      a.tests = (a.tests || []).filter(t => t.id !== b.dataset.del); await saveAthlete(); renderInfoPane();
+    });
+    $("delAthlete").onclick = async () => {
+      if (!confirm(`删除 ${a.name} 的档案？训练记录会保留。`)) return;
+      await dbDel("athletes", a.id); toast("已删除"); show("home");
+    };
+  }
+  async function renderBoardOnly() { const keep = A.pane; await renderAthlete(); A.pane = keep; }
+
+  // ================= 结果页：对比、手动标记、调试、加入计划 =================
+  async function renderCompare() {
+    const box = $("cmpBox");
+    if (S.action !== "sprint") { box.innerHTML = ""; return; }
+    const a = (await dbAll("athletes")).find(x => x.id === S.athleteId);
+    const sm = S.result.summary, E = COACH.ELITE;
+    const P = a ? COACH.profile(a, sm) : null;
+    const items = [
+      ["触地时间", sm.contact_time_s, P && P.targets.ct, E.ct, "s", 3, true],
+      ["腾空时间", sm.flight_time_s, null, E.ft, "s", 3, false],
+      ["步频", sm.step_frequency_hz, P && P.combos && P.combos.sfAtSameSL, E.sf, "步/秒", 2, false],
+      ["步长", sm.step_length_m, P && P.combos && P.combos.slAtSameSF, E.sl, "m", 2, false],
+      ["速度", sm.speed_mps, P && P.tgt.vmax, E.v, "m/s", 2, false],
+    ].filter(x => Number.isFinite(x[1]));
+    if (!items.length) { box.innerHTML = ""; return; }
+    box.innerHTML = `<h3 class="sec" style="margin-top:4px">与目标、${E.name}对比</h3><div class="bars">${items.map(([n, v, t, e, u, d]) => {
+      const max = Math.max(v, t || 0, e) * 1.12, pc = x => (x / max * 100).toFixed(1) + "%";
+      return `<div class="br"><div class="bl"><span>${n}</span><b>${v.toFixed(d)} <small style="font-size:12px;color:var(--muted)">${u}</small></b></div>
+        <div class="track"><div class="fill" style="width:${pc(v)}"></div>${Number.isFinite(t) ? `<div class="mk t" style="left:${pc(t)}"></div>` : ""}<div class="mk e" style="left:${pc(e)}"></div></div>
+        <div class="keys">${Number.isFinite(t) ? `<span><i style="background:var(--green)"></i>目标 ${t.toFixed(d)}</span>` : ""}<span><i style="background:var(--red)"></i>${E.name} ${e.toFixed(d)}</span></div></div>`;
+    }).join("")}</div>${!a || !Number.isFinite(a.goalTime) ? `<p class="lead" style="font-size:13px;margin-top:6px">在运动员档案里设定目标成绩后，这里会显示目标值。</p>` : ""}`;
+  }
+
+  function renderDebug() {
+    const R = S.result, box = $("dbgBox");
+    if (S.action !== "sprint" || !R.debug) { box.hidden = true; return; }
+    box.hidden = false;
+    const n = R.debug.left.ty.length, W = 600, H = 150, x = i => i / (n - 1) * W;
+    const panel = (key, f, thr, label) => {
+      const vals = ["left", "right"].map(s => R.debug[s][key].map(v => f(v, R.debug[s])));
+      const all = vals.flat().filter(Number.isFinite), mx = Math.max(...all, thr * 1.2), mn = Math.min(0, ...all);
+      const y = v => H - 16 - (v - mn) / (mx - mn || 1) * (H - 26);
+      const line = (arr, c) => `<path d="${arr.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(Number.isFinite(v) ? v : mn).toFixed(1)}`).join("")}" fill="none" stroke="${c}" stroke-width="2"/>`;
+      const spans = (R.steps || []).map(s => `<rect x="${x(s.touchdown_frame)}" y="0" width="${Math.max(2, x(s.toeoff_frame) - x(s.touchdown_frame))}" height="${H - 12}" fill="color-mix(in srgb, var(--${s.side === "left" ? "green" : "ink"}) 14%, transparent)"/>`).join("");
+      return `<svg viewBox="0 0 ${W} ${H}">${spans}${line(vals[0], "var(--lane-l)")}${line(vals[1], "var(--lane-r)")}
+        <line x1="0" x2="${W}" y1="${y(thr)}" y2="${y(thr)}" stroke="var(--red)" stroke-dasharray="5 4"/><text x="4" y="${H - 2}" font-size="13" fill="var(--muted)">${label}</text></svg>`;
+    };
+    const L = R.debug.left;
+    $("dbg").innerHTML = panel("ty", (v, d) => d.groundY - v, L.groundY - L.nearY, "脚尖离地高度（像素），虚线以下才可能是触地") +
+      panel("vx", (v, d) => v / (d.slowV / TH.sprint.stance_speed_ratio), TH.sprint.stance_speed_ratio, "脚尖水平速度 ÷ 跑速，虚线以下才可能是触地") +
+      `<p>绿线左脚，深色线右脚；色块是识别到的触地。左右腿标签互换纠正 ${R.legSwaps || 0} 次。触地要求“足够低”和“几乎不动”同时满足。如果两条曲线从没同时落到虚线以下，常见原因：机位在动、人物太小或被遮挡、跑速太慢。截图这里发给开发者可以帮助排查。</p>`;
+  }
+
+  // 手动标记
+  function setupMarking() {
+    const box = $("markBox");
+    box.hidden = !(S.action === "sprint" && !$("playerWrap").hidden);
+    if (box.hidden) return;
+    S.manual = S.manual || [];
+    S.markSide = S.markSide || "left";
+    $("markSide").querySelectorAll("button").forEach(b => { b.setAttribute("aria-pressed", b.dataset.s === S.markSide); b.onclick = () => { S.markSide = b.dataset.s; setupMarking(); }; });
+    const done = S.manual.filter(c => c.to != null).length, open = S.manual.find(c => c.to == null);
+    $("markInfo").textContent = S.manual.length ? `已手动标记 ${done} 次完整触地${open ? `，${open.side === "left" ? "左" : "右"}脚等待标记离地` : ""}。` : "逐帧找到脚刚接触地面的一帧点“着地”，刚离开地面的一帧点“离地”。标记后自动重新计算，手动结果优先。";
+  }
+  function recomputeFromManual() {
+    const cts = S.manual.filter(c => c.to != null && c.to > c.td).map(c => ({ side: c.side, td: c.td, to: c.to }));
+    if (!cts.length) return;
+    const keep = { debug: S.result.debug, legSwaps: S.result.legSwaps, pose: S.result.pose };
+    S.result = Object.assign(CM.sprintFromContacts(keep.pose || S.pose, S.fpsReal, TH, S.scale, cts), keep);
+    S.result.notes.unshift(`以下结果使用教练手动标记的 ${cts.length} 次触地。`);
+    S.result.manual = true;
+    S.hits = CM.matchCards(S.result, TH, CARDS);
+    renderResultPanels();
+  }
+  $("markTd").onclick = () => {
+    const i = frameOf(pv.currentTime);
+    S.manual = (S.manual || []).filter(c => !(c.side === S.markSide && c.to == null));
+    S.manual.push({ side: S.markSide, td: i, to: null });
+    toast(`${S.markSide === "left" ? "左" : "右"}脚着地：第 ${i + 1} 帧`); setupMarking();
+  };
+  $("markTo").onclick = () => {
+    const i = frameOf(pv.currentTime);
+    const c = (S.manual || []).find(x => x.side === S.markSide && x.to == null);
+    if (!c) { toast("先标记这只脚的着地"); return; }
+    if (i <= c.td) { toast("离地帧要在着地帧之后"); return; }
+    c.to = i; toast(`触地 ${((i - c.td + 1) / S.fpsReal * 1000).toFixed(0)} ms`);
+    S.markSide = S.markSide === "left" ? "right" : "left";
+    setupMarking(); recomputeFromManual();
+  };
+  $("markClear").onclick = () => { S.manual = []; setupMarking(); toast("已清除手动标记，请重新分析以恢复自动结果"); };
+
+  $("toPlanBtn").onclick = async () => {
+    const a = (await dbAll("athletes")).find(x => x.id === S.athleteId);
+    if (!a) return;
+    const add = COACH.focusFromHits(S.hits.map(h => h.id));
+    a.focus = [...new Set([...(a.focus || []), ...add])];
+    await dbPut("athletes", a);
+    toast("已加入训练计划重点");
+  };
+
+  // ---------------- 封面 ----------------
+  const HERO = {
+    sprint: { title: "短跑", line: "看清 0.1 秒里的每一次触地", go: "分析一段短跑视频", action: "sprint" },
+    lift: { title: "高翻 / 抓举", line: "看清杠铃走过的每一厘米", go: "分析一段举重视频", action: "clean" },
+  };
+  let cover = null;
+  function setWorld(w) {
+    const H = HERO[w] || HERO.sprint;
+    document.querySelectorAll(".worlds button").forEach(b => b.setAttribute("aria-pressed", b.dataset.w === w));
+    $("heroTitle").textContent = H.title; $("heroLine").textContent = H.line;
+    $("heroGo").textContent = H.go; $("heroGo").dataset.action = H.action;
+    if (cover) cover.setWorld(w);
+    try { localStorage.setItem("cm_world", w); } catch (e) { /* 忽略 */ }
+  }
+  if (window.Cover) {
+    cover = new Cover($("heroCanvas"), { world: localStorage.getItem("cm_world") || "sprint" });
+    cover.start();
+  }
+  document.querySelectorAll(".worlds button").forEach(b => b.onclick = () => setWorld(b.dataset.w));
+  $("heroGo").onclick = () => startNew($("heroGo").dataset.action);
+  setWorld(localStorage.getItem("cm_world") || "sprint");
+
   // ---------------- 启动 ----------------
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
-  renderHome();
+  $("bar").hidden = true;
+  renderHome(); renderPeople(); renderModelState();
 })();

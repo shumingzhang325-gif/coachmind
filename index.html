@@ -134,6 +134,134 @@ p.lead { color: var(--muted); margin: 0 0 18px; font-size: 15px; }
 .msg.ok { background: var(--green-soft); }
 .msg.ok b { color: var(--green); }
 
+
+/* ---------- 运动员页 ---------- */
+:root { --ph1: #9DB0C2; --ph2: #1E9A52; --ph3: #E0452A; --ph4: #0E1E2E; }
+@media (prefers-color-scheme: dark) { :root { --ph1: #4F6377; --ph2: #34C27A; --ph3: #FF6A4A; --ph4: #E6EDF3; } }
+.people { display: grid; gap: 10px; margin: 0 0 30px; }
+@media (min-width: 700px) { .people { grid-template-columns: 1fr 1fr; } }
+.person { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 12px; text-align: left; border: 0; background: var(--surface); border-radius: 18px; padding: 16px 18px; min-height: 84px; }
+.person .nm { font-size: 19px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.dot { display: inline-block; flex: none; border-radius: 50%; background: var(--rule); }
+.person .dot { width: 10px; height: 10px; }
+.dot.green { background: var(--green); } .dot.yellow { background: #E7A617; } .dot.red { background: var(--red); }
+.person .ln { color: var(--muted); font-size: 14px; }
+.person .cd { text-align: right; font-family: var(--num); font-size: 30px; line-height: 1; }
+.person .cd small { display: block; font-family: var(--font); font-size: 12px; color: var(--muted); margin-top: 4px; }
+.person.add { grid-template-columns: 1fr; justify-items: center; color: var(--green); font-weight: 600; border: 1.5px dashed var(--rule); background: transparent; min-height: 64px; }
+.tabs { display: flex; background: var(--sunk); border-radius: 12px; padding: 3px; margin: 16px 0 6px; position: sticky; top: 56px; z-index: 5; }
+.tabs button { flex: 1; border: 0; background: transparent; min-height: 42px; border-radius: 9px; font-size: 15px; color: var(--muted); }
+.tabs button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.pane { display: none; } .pane.on { display: block; }
+.today { background: var(--surface); border-radius: 18px; padding: 16px 18px; margin-top: 14px; }
+.today .hd { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.today .hd .dot { width: 12px; height: 12px; }
+.today .hd span.grow { flex: 1; }
+.today p { margin: 6px 0 0; color: var(--muted); font-size: 15px; }
+.today .sess { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.checkin { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--rule); display: grid; gap: 12px; }
+.checkin .q { display: grid; gap: 6px; }
+.checkin .q > span { font-size: 14px; color: var(--muted); }
+.scale { display: flex; background: var(--sunk); border-radius: 10px; padding: 3px; }
+.scale button { flex: 1; border: 0; background: transparent; min-height: 40px; border-radius: 8px; font-family: var(--num); font-size: 17px; color: var(--muted); }
+.scale button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 700; }
+.inrow { display: flex; gap: 10px; }
+.inrow label { flex: 1; display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
+.inrow input { min-height: 44px; border: 0; border-radius: 10px; background: var(--sunk); padding: 0 12px; font-family: var(--num); font-size: 18px; width: 100%; }
+.radarbox { background: var(--surface); border-radius: 18px; padding: 12px; }
+.radarbox svg { width: 100%; height: auto; display: block; }
+.legend { display: flex; gap: 16px; justify-content: center; font-size: 13px; color: var(--muted); padding: 4px 0 2px; }
+.legend i { display: inline-block; width: 14px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+.axes { list-style: none; margin: 10px 0 0; padding: 0; background: var(--surface); border-radius: 16px; overflow: hidden; }
+.axes li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px 16px; }
+.axes li + li { border-top: 1px solid var(--rule); }
+.axes .an { font-weight: 600; }
+.axes .as { font-family: var(--num); font-size: 22px; text-align: right; grid-row: 1 / span 2; grid-column: 2; align-self: center; }
+.axes .as.low { color: var(--red); }
+.axes .ad { color: var(--muted); font-size: 13px; }
+table.cmp { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 16px; overflow: hidden; font-size: 15px; }
+table.cmp th, table.cmp td { padding: 11px 10px; text-align: right; }
+table.cmp th { font-weight: 400; color: var(--muted); font-size: 13px; }
+table.cmp td { font-family: var(--num); font-size: 17px; }
+table.cmp td:first-child, table.cmp th:first-child { text-align: left; font-family: var(--font); font-size: 14px; color: var(--muted); }
+table.cmp tr + tr td { border-top: 1px solid var(--rule); }
+table.cmp .tg { color: var(--green); font-weight: 700; }
+.ins { background: var(--surface); border-radius: 18px; padding: 16px 18px; margin-bottom: 10px; }
+.ins .ar { font-size: 13px; color: var(--muted); }
+.ins h4 { margin: 2px 0 8px; font-size: 18px; }
+.ins ul { margin: 0; padding-left: 18px; }
+.ins li { margin: 6px 0; font-size: 15px; }
+.ins details { margin-top: 10px; font-size: 13px; color: var(--muted); }
+.ins summary { cursor: pointer; min-height: 32px; }
+.ins a { color: var(--green); word-break: break-all; }
+.weeks { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(26px, 1fr); gap: 3px; overflow-x: auto; padding: 6px 0 4px; }
+.wk { position: relative; height: 44px; border: 0; border-radius: 6px; padding: 0; font-family: var(--num); font-size: 12px; color: #fff; }
+.wk.gp { background: var(--ph1); } .wk.sp { background: var(--ph2); } .wk.cp { background: var(--ph3); } .wk.taper { background: var(--ph4); color: var(--bg); }
+.wk.deload { background-image: repeating-linear-gradient(135deg, rgba(255,255,255,.35) 0 4px, transparent 4px 8px); }
+.wk[aria-pressed="true"] { outline: 3px solid var(--ink); outline-offset: 1px; }
+.wk.now::after { content: ""; position: absolute; left: 50%; top: -6px; bottom: -6px; width: 2px; background: var(--red); transform: translateX(-1px); }
+.wk .t { position: absolute; bottom: 3px; left: 0; right: 0; text-align: center; font-size: 10px; }
+.phases { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); margin: 8px 0 14px; }
+.phases i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.wkhead { display: flex; justify-content: space-between; align-items: baseline; margin: 6px 0 10px; }
+.wkhead b { font-size: 18px; } .wkhead span { color: var(--muted); font-size: 14px; }
+.day { background: var(--surface); border-radius: 16px; padding: 14px 16px; margin-bottom: 8px; display: grid; grid-template-columns: 48px 1fr; gap: 12px; }
+.day .dn { font-weight: 700; font-size: 15px; }
+.day .dn small { display: block; font-family: var(--num); font-weight: 400; color: var(--muted); font-size: 13px; }
+.day .bk + .bk { margin-top: 10px; }
+.day .bk b { font-size: 15px; }
+.day .bk div { color: var(--muted); font-size: 14px; margin-top: 2px; }
+.day.today-day { box-shadow: inset 4px 0 0 var(--red); }
+.form .row input:not(.n), .form .row select { font-size: 16px; }
+.tests { list-style: none; margin: 0; padding: 0; }
+.tests li { display: flex; align-items: center; gap: 10px; min-height: 48px; }
+.tests li + li { border-top: 1px solid var(--rule); }
+.tests .tn { flex: 1; } .tests .tv { font-family: var(--num); font-size: 18px; } .tests .td { color: var(--muted); font-size: 13px; width: 78px; text-align: right; }
+.tests .x { border: 0; background: none; color: var(--muted); width: 36px; height: 36px; font-size: 18px; }
+.addtest { display: grid; grid-template-columns: 1.4fr 1fr 1fr auto; gap: 8px; padding: 10px 0; align-items: center; }
+.addtest select, .addtest input { min-height: 44px; border: 0; border-radius: 10px; background: var(--sunk); padding: 0 10px; min-width: 0; }
+.mark { background: var(--surface); border-radius: 16px; padding: 14px 16px; margin-top: 12px; }
+.mark .hd { display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+.mark .btns { display: flex; gap: 8px; margin-top: 10px; }
+.mark .btns .btn { font-size: 15px; min-height: 46px; background: var(--sunk); }
+.mark .btns .btn.quiet { background: transparent; }
+.mark p { color: var(--muted); font-size: 14px; margin: 8px 0 0; }
+.bars { background: var(--surface); border-radius: 16px; padding: 6px 16px 12px; }
+.bars .br { padding: 10px 0; }
+.bars .br + .br { border-top: 1px solid var(--rule); }
+.bars .bl { display: flex; justify-content: space-between; font-size: 14px; color: var(--muted); }
+.bars .bl b { color: var(--ink); font-family: var(--num); font-size: 17px; }
+.bars .track { position: relative; height: 10px; background: var(--sunk); border-radius: 5px; margin-top: 8px; }
+.bars .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; background: var(--ink); }
+.bars .mk { position: absolute; top: -4px; bottom: -4px; width: 3px; border-radius: 2px; transform: translateX(-1px); }
+.bars .mk.t { background: var(--green); } .bars .mk.e { background: var(--red); }
+.bars .keys { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.bars .keys i { display: inline-block; width: 3px; height: 10px; margin-right: 5px; vertical-align: -1px; }
+details.dbg { margin-top: 12px; background: var(--surface); border-radius: 16px; padding: 4px 16px; }
+details.dbg summary { min-height: 48px; display: flex; align-items: center; color: var(--muted); font-weight: 600; cursor: pointer; }
+details.dbg svg { width: 100%; height: auto; display: block; margin-bottom: 10px; }
+details.dbg p { font-size: 13px; color: var(--muted); }
+
+
+/* ---------- 封面 ---------- */
+.hero { position: relative; overflow: hidden; margin: -4px calc(-1 * var(--pad)) 28px; height: min(78svh, 700px); min-height: 520px; background: #07111C; color: #F4F7FA; }
+@media (min-width: 700px) { .hero { margin: 12px 0 32px; border-radius: 24px; height: min(66vh, 640px); } }
+.hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.hero-top { position: absolute; left: var(--pad); right: var(--pad); top: 14px; display: flex; align-items: center; justify-content: space-between; z-index: 2; }
+.hero-top b { font-size: 22px; font-weight: 800; letter-spacing: 0.06em; }
+.worlds { display: flex; background: rgba(8,14,22,0.55); border: 1px solid rgba(255,255,255,0.14); border-radius: 999px; padding: 3px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.worlds button { border: 0; background: transparent; color: rgba(244,247,250,0.7); min-height: 38px; padding: 0 16px; border-radius: 999px; font-size: 15px; }
+.worlds button[aria-pressed="true"] { background: #F4F7FA; color: #0E1E2E; font-weight: 600; }
+.hero-copy { position: absolute; left: var(--pad); right: var(--pad); bottom: 62px; z-index: 2; }
+.hero-copy h1 { margin: 0; font-size: clamp(46px, 13vw, 76px); line-height: 1; font-weight: 800; letter-spacing: 0.02em; text-shadow: 0 2px 24px rgba(0,0,0,0.5); }
+.hero-copy p { margin: 10px 0 18px; font-size: 17px; color: rgba(244,247,250,0.86); text-shadow: 0 1px 12px rgba(0,0,0,0.6); }
+.hero-copy .btn { flex: none; width: auto; padding: 0 24px; }
+@media (min-width: 700px) { .hero-copy { left: 40px; bottom: 70px; } .hero-top { left: 32px; right: 32px; top: 20px; } }
+/* 模型状态 */
+.modelrow { display: flex; align-items: center; gap: 12px; padding: 14px 0 4px; }
+.modelrow span { flex: 1; font-size: 15px; color: var(--muted); }
+.modelrow b { color: var(--ink); }
+
 /* 底部操作条 */
 .actionbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; padding: 12px var(--pad) calc(12px + env(safe-area-inset-bottom));
   background: linear-gradient(to top, var(--bg) 70%, color-mix(in srgb, var(--bg) 0%, transparent)); display: flex; gap: 10px; justify-content: center; }
@@ -270,30 +398,24 @@ table.steps .side { display: inline-block; width: 22px; height: 6px; border-radi
 <main>
 <!-- 首页 -->
 <section class="view on" id="v-home">
-  <div class="brand">
-    <div><h1>知练</h1><p>让每一次训练，都有科学依据</p></div>
-    <div class="date" id="today"></div>
+  <div class="hero" id="hero">
+    <canvas id="heroCanvas" aria-hidden="true"></canvas>
+    <div class="hero-top">
+      <b>知练</b>
+      <div class="worlds" role="group" aria-label="切换动作">
+        <button data-w="sprint" aria-pressed="true">短跑</button>
+        <button data-w="lift" aria-pressed="false">高翻</button>
+      </div>
+    </div>
+    <div class="hero-copy">
+      <h1 id="heroTitle">短跑</h1>
+      <p id="heroLine">看清 0.1 秒里的每一次触地</p>
+      <button class="btn go" id="heroGo" data-action="sprint">分析一段短跑视频</button>
+    </div>
   </div>
 
-  <div class="lanes">
-    <button class="lane" data-action="sprint">
-      <div><strong>短跑</strong><span>途中跑触地时间、步长、着地距离</span><em>分析一段视频</em></div>
-      <svg viewBox="0 0 132 88" aria-hidden="true">
-        <line x1="4" y1="30" x2="128" y2="30" stroke="var(--rule)"/><line x1="4" y1="62" x2="128" y2="62" stroke="var(--rule)"/>
-        <rect x="10" y="16" width="16" height="11" rx="3" fill="var(--lane-l)"/><rect x="62" y="16" width="16" height="11" rx="3" fill="var(--lane-l)"/><rect x="114" y="16" width="14" height="11" rx="3" fill="var(--lane-l)"/>
-        <rect x="36" y="48" width="16" height="11" rx="3" fill="var(--lane-r)"/><rect x="88" y="48" width="16" height="11" rx="3" fill="var(--lane-r)"/>
-        <line x1="70" y1="6" x2="70" y2="76" stroke="var(--red)" stroke-width="2"/>
-      </svg>
-    </button>
-    <button class="lane clean" data-action="clean">
-      <div><strong>高翻 / 抓举</strong><span>杠铃轨迹、最大速度、伸髋与接杠</span><em>分析一段视频</em></div>
-      <svg viewBox="0 0 132 88" aria-hidden="true">
-        <line x1="66" y1="8" x2="66" y2="82" stroke="var(--rule)" stroke-dasharray="3 4"/>
-        <path d="M66 80 C 62 64, 60 50, 66 38 C 72 26, 80 20, 76 14 C 72 10, 68 16, 69 24" fill="none" stroke="var(--ink)" stroke-width="3" stroke-linecap="round"/>
-        <circle cx="69" cy="24" r="5" fill="var(--red)"/>
-      </svg>
-    </button>
-  </div>
+  <div class="sechead"><h2>运动员</h2></div>
+  <div class="people" id="people"></div>
 
   <div class="sechead"><h2>训练记录</h2><button class="link" id="exportCsv">导出表格</button></div>
   <div class="chips" id="athleteFilter"></div>
@@ -309,6 +431,13 @@ table.steps .side { display: inline-block; width: 22px; height: 6px; border-radi
     <h4>传视频</h4>
     <p>尽量用原片。经微信转发会被压成 30 帧，触地时间就不准了。</p>
   </details>
+  <details class="guide" id="modelGuide">
+    <summary>姿态识别模型</summary>
+    <div class="modelrow"><span id="modelState">检查中</span><label class="btn sm" for="modelFile">从文件导入</label></div>
+    <p>模型文件叫 pose_landmarker_full.task（约 9 MB）。第一次分析时 App 会自动下载并保存在手机里；如果网络下载不了，可以在能访问国外网站的网络下用 Safari 打开下面的地址，下载到“文件”App，再点“从文件导入”。</p>
+    <p style="word-break:break-all;font-size:13px">https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task</p>
+  </details>
+  <input type="file" id="modelFile" hidden>
 </section>
 
 <!-- 1 选视频 -->
@@ -374,6 +503,21 @@ table.steps .side { display: inline-block; width: 22px; height: 6px; border-radi
   <div class="actionbar"><button class="btn" id="cancelProc">取消</button><button class="btn go" id="retryProc" hidden>重试</button></div>
 </section>
 
+
+<!-- 运动员 -->
+<section class="view" id="v-athlete">
+  <div class="board" id="aBoard"></div>
+  <div class="today" id="aToday"></div>
+  <div class="tabs" role="tablist">
+    <button data-pane="profile" aria-pressed="true">画像</button>
+    <button data-pane="plan" aria-pressed="false">计划</button>
+    <button data-pane="info" aria-pressed="false">档案</button>
+  </div>
+  <div class="pane on" id="p-profile"></div>
+  <div class="pane" id="p-plan"></div>
+  <div class="pane" id="p-info"></div>
+</section>
+
 <!-- 结果 -->
 <section class="view" id="v-result">
   <div class="result">
@@ -403,16 +547,24 @@ table.steps .side { display: inline-block; width: 22px; height: 6px; border-radi
         <div class="finfo"><span id="frameInfo"></span><span id="frameMs" class="n"></span></div>
       </div>
       <div class="clear" id="noVideo" hidden style="margin-top:14px">历史记录只保存指标和诊断，不保存视频。</div>
+      <div class="mark" id="markBox" hidden>
+        <div class="hd"><span>手动标记触地</span><div class="scale" style="width:120px" id="markSide"><button data-s="left" aria-pressed="true">左</button><button data-s="right" aria-pressed="false">右</button></div></div>
+        <div class="btns"><button class="btn" id="markTd">这一帧着地</button><button class="btn" id="markTo">这一帧离地</button><button class="btn quiet" id="markClear" style="flex:none">清除</button></div>
+        <p id="markInfo">逐帧找到脚刚接触地面的一帧点“着地”，刚离开地面的一帧点“离地”。标记后自动重新计算，手动结果优先。</p>
+      </div>
       <div class="strip" id="strip"></div>
+      <details class="dbg" id="dbgBox" hidden><summary>识别过程（排查问题用）</summary><div id="dbg"></div></details>
     </div>
 
     <div class="right">
       <div id="resNotes"></div>
+      <div id="cmpBox"></div>
       <h3 class="sec" style="margin-top:4px">全部指标</h3>
       <dl class="grid" id="metrics"></dl>
       <div id="stepsBox"></div>
       <h3 class="sec">诊断</h3>
       <div id="cards"></div>
+      <button class="btn" id="toPlanBtn" style="width:100%;margin-top:4px" hidden>把诊断重点加入训练计划</button>
       <h3 class="sec">教练备注</h3>
       <textarea class="note" id="coachNote" placeholder="现场观察、处理意见"></textarea>
       <button class="danger" id="deleteBtn" hidden>删除这条记录</button>
@@ -423,7 +575,9 @@ table.steps .side { display: inline-block; width: 22px; height: 6px; border-radi
 </main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div id="resTitle" hidden></div><div id="resMeta" hidden></div>
+<script src="cover.js"></script>
 <script src="engine.js"></script>
+<script src="coach.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
