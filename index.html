@@ -434,6 +434,8 @@ table.steps .side { display: inline-block; width: 22px; height: 6px; border-radi
   <details class="guide" id="modelGuide">
     <summary>姿态识别模型</summary>
     <div class="modelrow"><span id="modelState">检查中</span><label class="btn sm" for="modelFile">从文件导入</label></div>
+    <button class="btn sm" id="runDiag" style="margin-top:8px">检查识别环境</button>
+    <div id="diagHome"></div>
     <p>模型文件叫 pose_landmarker_full.task（约 9 MB）。第一次分析时 App 会自动下载并保存在手机里；如果网络下载不了，可以在能访问国外网站的网络下用 Safari 打开下面的地址，下载到“文件”App，再点“从文件导入”。</p>
     <p style="word-break:break-all;font-size:13px">https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task</p>
   </details>

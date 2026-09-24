@@ -17,6 +17,7 @@
     return { thigh, knee, ankle };
   }
   function runnerPose(phase, lean = 10) {
+    phase = ((1 - phase) % 1 + 1) % 1;                // 步态时间方向：支撑脚从身体前方扫向后方（修正“倒着跑”）
     const P = {};
     const r = d => d * Math.PI / 180;
     const legs = {};
@@ -45,6 +46,16 @@
     }
     return P;
   }
+  const STRIDE_PER_CYCLE = (() => {
+    let sum = 0, n = 0, prev = null;
+    for (let p = 0; p < 1; p += 0.002) {
+      const P = runnerPose(p);
+      const st = ["near", "far"].map(k => ({ k, y: Math.min(P[k + "Toe"][1], P[k + "Ank"][1]), x: P[k + "Toe"][0] })).sort((a, b) => a.y - b.y)[0];
+      if (st.y < 0.012 && prev && prev.k === st.k && prev.x > st.x) { sum += prev.x - st.x; n++; }
+      prev = st.y < 0.012 ? st : null;
+    }
+    return n ? (sum / n) / 0.002 : 3;                  // 触地时脚相对髋部的平均后移速度（身高/周期）
+  })();
   const RUN_BONES = [["hip", "sh"], ["sh", "head"], ["hip", "nearKnee"], ["nearKnee", "nearAnk"], ["nearAnk", "nearToe"], ["hip", "farKnee"], ["farKnee", "farAnk"], ["farAnk", "farToe"],
     ["sh", "nearElb"], ["nearElb", "nearWri"], ["sh", "farElb"], ["farElb", "farWri"]];
 
@@ -142,8 +153,8 @@
       const g = this.g, W = this.w, Hh = this.h;
       const horizon = Hh * 0.36, ground = Hh * 0.66;
       const H = Math.min(Hh * 0.40, W * 0.55);                  // 人物身高（像素）
-      const speed = H * 5.8;                                     // 画面中的前进速度（像素/秒）
-      const cad = 2.25;                                          // 步态周期/秒
+      const cad = 1.35;                                          // 步态周期/秒（画面放慢，便于看清）
+      const speed = H * STRIDE_PER_CYCLE * cad;                  // 与支撑脚后扫速度一致，脚不打滑
       // 夜空
       let gr = g.createLinearGradient(0, 0, 0, horizon);
       gr.addColorStop(0, "#050C15"); gr.addColorStop(1, "#0F2236");
@@ -194,7 +205,7 @@
       sg.addColorStop(0, "rgba(0,0,0,0.45)"); sg.addColorStop(1, "rgba(0,0,0,0)");
       g.fillStyle = sg; g.fillRect(rx - H * 0.6, ground - 10, H * 1.2, 30);
       // 多重曝光：过去的姿态按真实位移留在身后
-      const exposures = 7, dt = 0.075;
+      const exposures = 5, dt = 0.16;
       for (let k = exposures; k >= 1; k--) {
         const tt = t - k * dt;
         const P = runnerPose(((tt * cad) % 1 + 1) % 1);
@@ -302,5 +313,5 @@
     }
   }
   root.Cover = Cover;
-  root.COVER_POSE = { runnerPose, liftPose };
+  root.COVER_POSE = { runnerPose, liftPose, STRIDE_PER_CYCLE };
 })(typeof self !== "undefined" ? self : this);
