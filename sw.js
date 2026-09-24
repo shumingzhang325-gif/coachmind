@@ -1,5 +1,5 @@
 /* 离线缓存：首次联网打开后，App、姿态模型和运算库都存在手机里，训练场没网也能用 */
-const CACHE = "coachmind-v1";
+const CACHE = "coachmind-v2";
 const CORE = ["./", "index.html", "app.js", "engine.js", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => {
@@ -10,7 +10,7 @@ self.addEventListener("fetch", e => {
   if (req.method !== "GET" || req.url.startsWith("blob:")) return;
   const url = new URL(req.url);
   const sameOrigin = url.origin === location.origin;
-  const isLib = /cdn\.jsdelivr\.net|storage\.googleapis\.com/.test(url.host);
+  const isLib = /jsdelivr\.net|storage\.googleapis\.com|npmmirror\.com|unpkg\.com/.test(url.host);
   if (!sameOrigin && !isLib) return;
   if (sameOrigin && /\.(html|js)$|\/$/.test(url.pathname)) {
     // 自己的代码：先联网取最新，失败再用缓存

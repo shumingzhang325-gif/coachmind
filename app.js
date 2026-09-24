@@ -4,11 +4,19 @@
   const $ = id => document.getElementById(id);
   const TH = CM_THRESHOLDS, CARDS = CM_CARDS;
   const MP_VERSION = "0.10.14";
-  const MP_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`;
-  const MODEL_URLS = [
-    "pose_landmarker_full.task",
-    "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
+  // 运算库来源：先用你自己网站上的文件，再依次尝试国内镜像和国外 CDN
+  const LIB_SOURCES = [
+    { name: "本站文件", bundle: new URL("vision_bundle.mjs", location.href).href, wasm: new URL(".", location.href).href.replace(/\/$/, "") },
+    { name: "npmmirror 国内镜像", bundle: `https://registry.npmmirror.com/@mediapipe/tasks-vision/${MP_VERSION}/files/vision_bundle.mjs`, wasm: `https://registry.npmmirror.com/@mediapipe/tasks-vision/${MP_VERSION}/files/wasm` },
+    { name: "jsDelivr", bundle: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`, wasm: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm` },
+    { name: "jsDelivr 备用", bundle: `https://fastly.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`, wasm: `https://fastly.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm` },
+    { name: "unpkg", bundle: `https://unpkg.com/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`, wasm: `https://unpkg.com/@mediapipe/tasks-vision@${MP_VERSION}/wasm` },
   ];
+  const MODEL_SOURCES = [
+    { name: "本站文件", url: new URL("pose_landmarker_full.task", location.href).href },
+    { name: "Google", url: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task" },
+  ];
+  const MP4BOX_SOURCES = ["mp4box.all.min.js", "https://registry.npmmirror.com/mp4box/0.5.2/files/dist/mp4box.all.min.js", "https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js"];
   const WORK_LONG_SIDE = 1280;           // 处理分辨率：长边 1280 像素
   const MAX_SECONDS_WARN = 3;
   const ACTION_NAME = { sprint: "短跑", clean: "高翻 / 抓举" };
@@ -51,10 +59,19 @@
   // ---------------- 视图切换 ----------------
   const S = {};                // 当前分析的状态
   let viewStack = ["home"];
+  const VIEW_META = {
+    home: { title: "", step: 0 }, new: { title: "选择视频", step: 1 }, calib: { title: "片段与标定", step: 2 },
+    process: { title: "分析", step: 3 }, result: { title: "分析结果", step: 0 },
+  };
   function show(v, push = true) {
     document.querySelectorAll("section.view").forEach(s => s.classList.toggle("on", s.id === "v-" + v));
     if (push && viewStack[viewStack.length - 1] !== v) viewStack.push(v);
+    const m = VIEW_META[v];
     $("backBtn").hidden = v === "home";
+    $("title").textContent = m.title;
+    $("bar").classList.toggle("line", v !== "home");
+    $("stepper").hidden = !m.step;
+    $("stepper").querySelectorAll("i").forEach((el, k) => el.classList.toggle("on", k < m.step));
     window.scrollTo(0, 0);
     if (v === "home") { viewStack = ["home"]; stopPlayback(); renderHome(); }
   }
@@ -67,24 +84,33 @@
 
   // ---------------- 首页 ----------------
   let athleteFilter = null;
+  function renderToday() {
+    const d = new Date(), wk = "日一二三四五六"[d.getDay()];
+    $("today").innerHTML = `<b>${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}</b>星期${wk}`;
+  }
   async function renderHome() {
+    renderToday();
     const [athletes, analyses] = await Promise.all([dbAll("athletes"), dbAll("analyses")]);
     const chips = $("athleteFilter");
-    chips.innerHTML = athletes.length ? [`<button aria-pressed="${!athleteFilter}" data-a="">全部</button>`]
+    chips.innerHTML = athletes.length > 1 ? [`<button aria-pressed="${!athleteFilter}" data-a="">全部</button>`]
       .concat(athletes.map(a => `<button aria-pressed="${athleteFilter === a.id}" data-a="${a.id}">${esc(a.name)}</button>`)).join("") : "";
     chips.querySelectorAll("button").forEach(b => b.onclick = () => { athleteFilter = b.dataset.a || null; renderHome(); });
     const list = analyses.filter(a => !athleteFilter || a.athleteId === athleteFilter).sort((a, b) => b.id - a.id);
     $("historyList").innerHTML = list.length ? list.map(a => {
-      const key = a.action === "sprint" ? (a.summary.contact_time_s ? `触地 ${a.summary.contact_time_s.toFixed(3)} s` : "")
-        : (a.summary.peak_bar_velocity_mps ? `峰速 ${a.summary.peak_bar_velocity_mps.toFixed(2)} m/s` : "");
+      const d = new Date(a.date);
+      const [val, unit] = a.action === "sprint"
+        ? [a.summary.contact_time_s != null ? a.summary.contact_time_s.toFixed(3) : "–", "s 触地"]
+        : [a.summary.peak_bar_velocity_mps != null ? a.summary.peak_bar_velocity_mps.toFixed(2) : "–", "m/s 峰速"];
       const n = (a.hits || []).length;
-      return `<li><button data-id="${a.id}"><span class="t">${esc(a.athleteName || "未指定")} · ${ACTION_NAME[a.action]}</span>
-        <span class="k num">${key}${n ? `<br><span class="tag">${n} 个问题</span>` : ""}</span>
-        <span class="s">${fmtDate(a.date)}${a.reviewed ? " · 教练已确认" : ""}</span></button></li>`;
-    }).join("") : `<li class="empty">还没有记录。选择上面的动作开始第一次分析。</li>`;
+      const tag = a.reviewed ? `<span class="ok">教练已确认</span>` : n ? `<span class="flag">${n} 个待查问题</span>` : "";
+      return `<li><button data-id="${a.id}">
+        <span class="d"><b>${String(d.getDate()).padStart(2, "0")}</b>${d.getMonth() + 1}月</span>
+        <span><span class="who">${esc(a.athleteName || "未指定")}</span><br><span class="what">${ACTION_NAME[a.action]}　${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}</span></span>
+        <span class="val">${val}<small>${unit}</small>${tag}</span></button></li>`;
+    }).join("") : `<li class="blank">还没有记录。选一个动作，分析第一段视频。</li>`;
     $("historyList").querySelectorAll("button[data-id]").forEach(b => b.onclick = () => openSaved(Number(b.dataset.id)));
   }
-  document.querySelectorAll(".choice button").forEach(b => b.onclick = () => startNew(b.dataset.action));
+  document.querySelectorAll(".lane").forEach(b => b.onclick = () => startNew(b.dataset.action));
 
   // ---------------- 新建分析 ----------------
   async function startNew(action) {
@@ -92,7 +118,7 @@
     S.action = action;
     $("newTitle").textContent = ACTION_NAME[action] + "分析";
     $("markerField").hidden = action !== "sprint";
-    $("fileInfo").innerHTML = ""; $("fpsBox").hidden = true; $("fileInput").value = "";
+    $("fileInfo").innerHTML = ""; $("fpsBox").hidden = true; $("fileInput").value = ""; $("pickBox").hidden = false;
     await renderAthleteSelect();
     show("new");
   }
@@ -116,6 +142,13 @@
     toast(`已添加 ${name}`);
   };
 
+  function loadScriptFrom(urls) {
+    return urls.reduce((p, url) => p.then(ok => ok || new Promise(res => {
+      const el = document.createElement("script"); el.src = url; el.onload = () => res(true); el.onerror = () => { el.remove(); res(false); };
+      document.head.appendChild(el); setTimeout(() => res(!!window.MP4Box), 8000);
+    })), Promise.resolve(false));
+  }
+
   // 帧率检测：① 逐帧精确测量 ② 解析 MP4/MOV 文件头 ③ 都失败时按 30 并提示
   async function detectFps(file, video) {
     try {
@@ -123,6 +156,7 @@
       if (f && f > 5 && f < 2000) return { fps: f, method: "逐帧测量" };
     } catch (e) { /* 继续 */ }
     try {
+      if (!window.MP4Box) await loadScriptFrom(MP4BOX_SOURCES);
       if (!window.MP4Box) throw new Error("no mp4box");
       const buf = await file.arrayBuffer();
       buf.fileStart = 0;
@@ -159,15 +193,17 @@
     if (!file) return;
     if (S.url) URL.revokeObjectURL(S.url);
     S.file = file; S.url = URL.createObjectURL(file);
-    $("fileInfo").innerHTML = `<p class="hint">正在读取 ${esc(file.name)}…</p>`;
+    $("pickBox").hidden = true;
+    $("fileInfo").innerHTML = `<div class="filecard"><span class="nm">${esc(file.name)}</span><span class="sp">正在读取…</span></div>`;
     hiddenVideo.src = S.url;
     try {
       await primeVideo(hiddenVideo);
     } catch (err) {
-      $("fileInfo").innerHTML = `<div class="note">这个视频无法播放。请在 iPhone 设置 → 相机 → 格式 里选“兼容性最佳”后重拍。</div>`;
+      $("pickBox").hidden = false;
+      $("fileInfo").innerHTML = `<div class="msg"><b>这个视频无法读取。</b>请在 iPhone 设置 → 相机 → 格式 里选“兼容性最佳”后重拍。</div>`;
       return;
     }
-    $("fileInfo").innerHTML = `<p class="hint">正在检测帧率…</p>`;
+    $("fileInfo").innerHTML = `<div class="filecard"><span class="nm">${esc(file.name)}</span><span class="sp">正在逐帧测量帧率…</span></div>`;
     const d = await detectFps(file, hiddenVideo);
     await seek(hiddenVideo, 0);
     S.fpsFile = d.fps; S.duration = hiddenVideo.duration;
@@ -177,10 +213,15 @@
     S.start = 0; S.end = S.duration;
     const hi = d.fps >= 100;
     $("fpsReal").value = hi ? Math.round(d.fps) : 240;
-    $("fileInfo").innerHTML = `<p class="meta num">${S.vw}×${S.vh} · 帧率 ${d.fps.toFixed(1)} fps（${d.method}） · ${S.duration.toFixed(2)} s</p>` +
-      (d.unknown ? `<div class="note">没能检测到帧率，下面按 240 填写。请确认这是慢动作原片。</div>` :
-       hi ? `<div class="note info">检测到高帧率原片，可以直接分析。</div>`
-          : `<div class="note">文件只有 ${Math.round(d.fps)} fps。如果这是 iPhone 慢动作被导出成了慢放视频，保持下面的 240；如果本来就是普通速度拍的，请改成 ${Math.round(d.fps)}（触地时间会不准）。</div>`);
+    $("fileInfo").innerHTML = `<div class="filecard">
+        <span class="nm">${esc(file.name)}</span>
+        <span class="sp">${S.vw}×${S.vh}　${S.duration.toFixed(2)} 秒　${d.method}</span>
+        <span class="fps ${hi ? "good" : "low"}">${Math.round(d.fps)}<small>帧/秒</small></span>
+        <label class="btn sm re" for="fileInput">换一个视频</label>
+      </div>` +
+      (d.unknown ? `<div class="msg"><b>没能测出帧率，</b>下面先按 240 计算。请确认这是慢动作原片。</div>` :
+       hi ? `<div class="msg ok"><b>高帧率原片，</b>可以直接分析。</div>`
+          : `<div class="msg"><b>只有 ${Math.round(d.fps)} 帧/秒。</b>如果这是 iPhone 慢动作被导出成了慢放视频，保持下面的 240；如果本来就是普通速度拍的，改成 ${Math.round(d.fps)}，但触地时间会不准。</div>`);
     $("fpsBox").hidden = false;
   };
 
@@ -249,29 +290,30 @@
     cctx.lineWidth = lw;
     if (S.phase === "calib") {
       S.calibPts.forEach((p, i) => {
-        cctx.fillStyle = "#43B35A"; cctx.strokeStyle = "#fff";
+        cctx.fillStyle = "#34C27A"; cctx.strokeStyle = "#fff";
         cctx.beginPath(); cctx.arc(p[0], p[1], lw * 4, 0, 7); cctx.fill(); cctx.stroke();
-        if (S.action === "sprint" && i === 1) { cctx.strokeStyle = "#43B35A"; cctx.beginPath(); cctx.moveTo(...S.calibPts[0]); cctx.lineTo(...p); cctx.stroke(); }
+        if (S.action === "sprint" && i === 1) { cctx.strokeStyle = "#34C27A"; cctx.beginPath(); cctx.moveTo(...S.calibPts[0]); cctx.lineTo(...p); cctx.stroke(); }
       });
       if (S.action === "clean" && S.calibPts.length === 2) {
         const [c, e] = S.calibPts, r = Math.hypot(e[0] - c[0], e[1] - c[1]);
-        cctx.strokeStyle = "#43B35A"; cctx.lineWidth = lw * 1.5; cctx.beginPath(); cctx.arc(c[0], c[1], r, 0, 7); cctx.stroke();
+        cctx.strokeStyle = "#34C27A"; cctx.lineWidth = lw * 1.5; cctx.beginPath(); cctx.arc(c[0], c[1], r, 0, 7); cctx.stroke();
       }
     }
   }
   function calibText() {
     const n = Math.round((S.end - S.start) * S.fpsFile);
-    const real = n / S.fpsReal;
-    $("rangeInfo").textContent = `片段 ${(S.end - S.start).toFixed(2)} s · ${n} 帧（真实时长 ${real.toFixed(2)} s）`;
-    const warn = $("calibWarn");
-    const perFrame = 0.12;                        // 估算每帧处理时间（秒）
-    warn.innerHTML = n * perFrame > 60 ? `<div class="note">片段有 ${n} 帧，预计处理约 ${Math.round(n * perFrame / 60)} 分钟。建议只保留运动员经过的部分。</div>` : "";
+    $("rangeInfo").innerHTML = `片段 <span class="n">${(S.end - S.start).toFixed(2)}</span> 秒　<span class="n">${n}</span> 帧`;
+    const sel = $("rangeSel");
+    sel.style.left = (S.start / S.duration * 100) + "%"; sel.style.width = ((S.end - S.start) / S.duration * 100) + "%";
+    const perFrame = 0.12;
+    $("calibWarn").innerHTML = n * perFrame > 60 ? `<div class="msg"><b>片段较长，</b>${n} 帧预计要处理 ${Math.round(n * perFrame / 60)} 分钟左右。建议只保留运动员经过的部分。</div>` : "";
   }
+  function setCalibHead(t) { $("calibHead").style.left = (t / S.duration * 100) + "%"; $("calibTime").textContent = t.toFixed(3) + " s"; }
   async function enterCalib() {
     cc.width = S.W; cc.height = S.H;
     $("calibScrub").max = 1000;
     $("calibScrub").value = Math.round(S.start / S.duration * 1000);
-    $("calibTime").textContent = S.start.toFixed(3) + " s";
+    setCalibHead(S.start);
     show("calib");
     updateCalibUI();
     await seek(hiddenVideo, S.phase === "range" ? S.start : S.start + 0.5 / S.fpsFile);
@@ -279,20 +321,21 @@
   }
   function updateCalibUI() {
     const range = S.phase === "range";
-    $("calibTitle").textContent = range ? "选择分析片段" : (S.action === "sprint" ? "标定距离" : "标定杠铃片");
-    $("calibHint").textContent = range ? "拖动进度条，把起点设在运动员进入画面前，终点设在离开画面后（高翻设在接杠站稳后）。"
+    $("calibTitle").textContent = range ? "选择片段" : (S.action === "sprint" ? "标定距离" : "标定杠铃片");
+    $("calibHint").textContent = range ? "拖动时间尺，把起点设在运动员入画前、终点设在出画后。高翻的终点设在接杠站稳后。"
       : S.action === "sprint" ? `在画面上依次点两个标志桶的底部（间距 ${S.markerDist} 米）。不标定也能算触地时间，但算不了步长和速度。`
-      : "先点杠铃片中心，再点杠铃片边缘。这一帧是片段起点，杠铃必须清楚可见。";
+      : S.calibPts.length === 0 ? "先点杠铃片的中心。" : S.calibPts.length === 1 ? "再点杠铃片的边缘。" : "绿圈应该正好套住杠铃片。不对就撤销重点。";
     $("rangeControls").hidden = !range; $("calibControls").hidden = range;
     $("skipCalib").hidden = S.action !== "sprint";
-    $("calibScrub").disabled = !range;
+    $("calibRuler").style.pointerEvents = range ? "" : "none";
+    $("calibRuler").style.opacity = range ? "1" : "0.45";
     $("calibNext").textContent = range ? "下一步：标定" : "开始分析";
-    $("calibNext").disabled = !range && S.action === "clean" && S.calibPts.length < 2;
+    $("calibNext").disabled = !range && ((S.action === "clean" && S.calibPts.length < 2) || (S.action === "sprint" && S.calibPts.length === 1));
     calibText();
   }
   $("calibScrub").oninput = async e => {
     const t = S.duration * e.target.value / 1000;
-    $("calibTime").textContent = t.toFixed(3) + " s";
+    setCalibHead(t);
     if (S.seeking) { S.pendingSeek = t; return; }
     S.seeking = true;
     await seek(hiddenVideo, t); drawCalib();
@@ -318,29 +361,36 @@
   };
 
   // ---------------- 姿态模型 ----------------
-  let landmarkerP = null;
-  function getLandmarker() {
+  let landmarkerP = null, loadLog = [];
+  const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + " 超时")), ms))]);
+  function getLandmarker(onStatus) {
     if (landmarkerP) return landmarkerP;
+    loadLog = [];
     landmarkerP = (async () => {
-      const { PoseLandmarker, FilesetResolver } = await import(`${MP_BASE}/vision_bundle.mjs`);
-      const fileset = await FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
-      let lastErr;
-      for (const url of MODEL_URLS) {
+      let lib = null, src = null;
+      for (const c of LIB_SOURCES) {
+        onStatus && onStatus(`正在加载运算库（${c.name}）`);
+        try { lib = await withTimeout(import(c.bundle), 20000, "下载"); src = c; break; }
+        catch (e) { loadLog.push(`运算库 · ${c.name}：${e.message || e}`); }
+      }
+      if (!lib) throw new Error("运算库");
+      const fileset = { wasmLoaderPath: `${src.wasm}/vision_wasm_internal.js`, wasmBinaryPath: `${src.wasm}/vision_wasm_internal.wasm` };
+      for (const m of MODEL_SOURCES) {
         for (const delegate of ["GPU", "CPU"]) {
+          onStatus && onStatus(`正在加载姿态模型（${m.name}${delegate === "CPU" ? "，兼容模式" : ""}）`);
           try {
-            return await PoseLandmarker.createFromOptions(fileset, {
-              baseOptions: { modelAssetPath: url, delegate }, runningMode: "VIDEO", numPoses: 1,
+            return await withTimeout(lib.PoseLandmarker.createFromOptions(fileset, {
+              baseOptions: { modelAssetPath: m.url, delegate }, runningMode: "VIDEO", numPoses: 1,
               minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
-            });
-          } catch (e) { lastErr = e; }
+            }), 60000, "加载");
+          } catch (e) { loadLog.push(`模型 · ${m.name} · ${delegate}：${e.message || e}`); }
         }
       }
-      throw lastErr || new Error("模型加载失败");
+      throw new Error("模型");
     })();
     landmarkerP.catch(() => { landmarkerP = null; });
     return landmarkerP;
   }
-
   // ---------------- 逐帧分析 ----------------
   const pc = $("procCanvas");
   async function runAnalysis() {
@@ -348,15 +398,25 @@
     S.processing = true; S.cancel = false;
     pc.width = S.W; pc.height = S.H;
     const pctx = pc.getContext("2d", { willReadFrequently: true });
-    $("procBar").style.width = "0%";
-    $("procStatus").textContent = "加载姿态模型（首次约需半分钟）…";
+    $("procBar").style.width = "0%"; $("procPct").innerHTML = `0<small>%</small>`;
+    $("procStage").hidden = true; $("procError").hidden = true; $("procHead").hidden = false;
+    $("retryProc").hidden = true; $("cancelProc").textContent = "取消";
     let lm;
-    try { lm = await getLandmarker(); }
+    try { lm = await getLandmarker(t => { $("procStatus").textContent = t + "…"; }); }
     catch (e) {
       S.processing = false;
-      $("procStatus").innerHTML = `姿态模型加载失败：${esc(e.message || e)}<br>请检查网络。首次使用需要联网下载模型，之后可离线使用。`;
+      const which = e.message === "运算库" ? "运算库" : "姿态模型";
+      $("procHead").hidden = true;
+      $("procError").hidden = false;
+      $("procError").innerHTML = `<h3>${which}下载失败</h3>
+        <p>第一次分析需要下载${which}，之后会存在手机里离线使用。现在所有下载来源都连不上，常见原因是国内网络访问不了国外的文件服务器。</p>
+        <ol><li>最稳的办法：把离线文件放进你的 GitHub 仓库（压缩包里的“离线文件说明”），以后不再依赖外网</li>
+        <li>临时办法：打开能访问国外网站的网络后点“重试”</li></ol>
+        <details style="margin-top:10px"><summary style="color:var(--muted);font-size:14px;cursor:pointer">技术细节</summary><code>${loadLog.map(esc).join("<br>")}</code></details>`;
+      $("retryProc").hidden = false; $("cancelProc").textContent = "返回";
       return;
     }
+    $("procStage").hidden = false;
     const N = Math.max(2, Math.round((S.end - S.start) * S.fpsFile));
     const pose = new Array(N).fill(null), bar = S.action === "clean" ? new Array(N).fill([NaN, NaN]) : null;
     let tracker = null, lastTs = -1, lastMT = null, dupes = 0;
@@ -385,7 +445,8 @@
         drawOverlay(pctx, pose[i], { bar, i, scale: 1 });
         const el = (performance.now() - t0) / 1000, left = el / (i + 1) * (N - i - 1);
         $("procBar").style.width = ((i + 1) / N * 100).toFixed(1) + "%";
-        $("procStatus").textContent = `第 ${i + 1} / ${N} 帧 · 预计还需 ${Math.ceil(left)} 秒`;
+        $("procPct").innerHTML = `${Math.floor((i + 1) / N * 100)}<small>%</small>`;
+        $("procStatus").textContent = `第 ${i + 1} 帧，共 ${N} 帧　还需约 ${Math.ceil(left)} 秒`;
         await sleep(0);
       }
     }
@@ -396,7 +457,8 @@
     S.saved = false; S.savedId = null; S.verdicts = {}; S.coachNote = "";
     showResult(true);
   }
-  $("cancelProc").onclick = () => { S.cancel = true; };
+  $("cancelProc").onclick = () => { if (S.processing) S.cancel = true; else show("calib", false); };
+  $("retryProc").onclick = () => runAnalysis();
 
   function computeResult(detected) {
     let scale = null;
@@ -422,17 +484,17 @@
         if (!p[a] || !p[b]) continue;
         ctx.beginPath(); ctx.moveTo(p[a][0] * s, p[a][1] * s); ctx.lineTo(p[b][0] * s, p[b][1] * s); ctx.stroke();
       }
-      ctx.fillStyle = "#43B35A";
+      ctx.fillStyle = "#34C27A";
       for (let j = 11; j < 33; j++) if (p[j]) { ctx.beginPath(); ctx.arc(p[j][0] * s, p[j][1] * s, lw * 1.6, 0, 7); ctx.fill(); }
     }
     if (o.contactSide) {
       const S2 = CM.SIDES[o.contactSide];
-      if (p && p[S2.foot]) { ctx.strokeStyle = "#E8963F"; ctx.lineWidth = lw * 1.5; ctx.beginPath(); ctx.arc(p[S2.foot][0] * s, p[S2.foot][1] * s, lw * 6, 0, 7); ctx.stroke(); }
-      ctx.fillStyle = "#E8963F"; ctx.font = `600 ${Math.round(lw * 9)}px ${getComputedStyle(document.body).fontFamily}`;
+      if (p && p[S2.foot]) { ctx.strokeStyle = "#FF6A4A"; ctx.lineWidth = lw * 1.5; ctx.beginPath(); ctx.arc(p[S2.foot][0] * s, p[S2.foot][1] * s, lw * 6, 0, 7); ctx.stroke(); }
+      ctx.fillStyle = "#FF6A4A"; ctx.font = `600 ${Math.round(lw * 9)}px ${getComputedStyle(document.body).fontFamily}`;
       ctx.fillText(o.contactSide === "left" ? "左脚触地" : "右脚触地", lw * 6, lw * 14);
     }
     if (o.bar) {
-      ctx.strokeStyle = "#E8963F"; ctx.lineWidth = lw * 1.2; ctx.beginPath();
+      ctx.strokeStyle = "#FF6A4A"; ctx.lineWidth = lw * 1.2; ctx.beginPath();
       let started = false;
       for (let k = 0; k <= o.i && k < o.bar.length; k++) {
         const q = o.bar[k]; if (!q || !Number.isFinite(q[0])) continue;
@@ -440,7 +502,7 @@
       }
       ctx.stroke();
       const q = o.bar[Math.min(o.i, o.bar.length - 1)];
-      if (q && Number.isFinite(q[0])) { ctx.fillStyle = "#E8963F"; ctx.beginPath(); ctx.arc(q[0] * s, q[1] * s, lw * 2.5, 0, 7); ctx.fill(); }
+      if (q && Number.isFinite(q[0])) { ctx.fillStyle = "#FF6A4A"; ctx.beginPath(); ctx.arc(q[0] * s, q[1] * s, lw * 2.5, 0, 7); ctx.fill(); }
     }
   }
 
@@ -448,19 +510,29 @@
   const pv = $("playVideo"), ov = $("playOverlay"), octx = ov.getContext("2d");
   let playing = false, contactByFrame = null;
 
+  const BOARD = {
+    sprint: ["contact_time_s", "step_length_m", "speed_mps"],
+    clean: ["peak_bar_velocity_mps", "max_bar_height_m", "drop_under_m"],
+  };
   function showResult(live) {
     const R = S.result;
-    $("resTitle").textContent = `${S.athleteName} · ${ACTION_NAME[S.action]}`;
-    $("resMeta").textContent = `${fmtDate(S.date || new Date().toISOString())} · 按 ${S.fpsReal} fps 计算`;
-    $("resNotes").innerHTML = (R.notes || []).map(n => `<div class="note">${esc(n)}</div>`).join("");
     const hitMetrics = new Set(S.hits.map(h => h.condition.metric));
-    $("metrics").innerHTML = Object.entries(R.summary).map(([k, v]) => {
+    const d = new Date(S.date || Date.now());
+    const [k0, k1, k2] = BOARD[S.action];
+    const cell = k => { const v = R.summary[k]; const [name, unit] = CM.LABELS[k] || [k, ""]; return { v: v == null ? "–" : CM.fmt(v, unit), unit: v == null ? "" : unit, name, hit: hitMetrics.has(k) }; };
+    const m0 = cell(k0), m1 = cell(k1), m2 = cell(k2);
+    $("board").innerHTML = `<div class="who"><span>${esc(S.athleteName || "")}　${ACTION_NAME[S.action]}</span><span class="n">${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}</span></div>
+      <div class="main"><b>${m0.v}</b><small>${m0.unit}</small></div>
+      <div class="lbl ${m0.hit ? "hit" : ""}">${m0.name}${m0.hit ? "　偏离参考值" : ""}</div>
+      <div class="sub">${[m1, m2].map(m => `<div class="${m.hit ? "hit" : ""}"><b>${m.v}<small>${m.unit}</small></b><span class="lbl">${m.name}</span></div>`).join("")}</div>`;
+    $("resNotes").innerHTML = (R.notes || []).map(n => `<div class="msg">${esc(n)}</div>`).join("");
+    $("metrics").innerHTML = Object.entries(R.summary).filter(([k]) => k !== "side_analyzed").map(([k, v]) => {
       const [name, unit] = CM.LABELS[k] || [k, ""];
       return `<div class="${hitMetrics.has(k) ? "hit" : ""}"><dt>${name}</dt><dd>${esc(CM.fmt(v, unit))}<small>${unit}</small></dd></div>`;
     }).join("") || `<div><dt>没有得到指标</dt><dd>–</dd></div>`;
-    $("stepsBox").innerHTML = S.action === "sprint" && R.steps && R.steps.length ? `<h3>逐步数据</h3><div class="tablewrap"><table class="steps num">
+    $("stepsBox").innerHTML = S.action === "sprint" && R.steps && R.steps.length ? `<h3 class="sec">逐步数据</h3><div class="tablewrap"><table class="steps">
       <tr><th>步</th><th>触地 s</th><th>腾空 s</th><th>步长 m</th><th>着地距离 m</th></tr>
-      ${R.steps.map((s, i) => `<tr><td>${i + 1} ${s.side === "left" ? "左" : "右"}</td><td>${s.contact_time_s.toFixed(3)}</td><td>${s.flight_time_s != null ? s.flight_time_s.toFixed(3) : "–"}</td>
+      ${R.steps.map((s, i) => `<tr><td><span class="side" style="background:var(--lane-${s.side === "left" ? "l" : "r"})"></span>${i + 1}</td><td>${s.contact_time_s.toFixed(3)}</td><td>${s.flight_time_s != null ? s.flight_time_s.toFixed(3) : "–"}</td>
       <td>${s.step_length_m != null ? s.step_length_m.toFixed(2) : "–"}</td><td>${s.touchdown_distance_m != null ? s.touchdown_distance_m.toFixed(2) : "–"}</td></tr>`).join("")}
       </table></div>` : "";
     renderCards();
@@ -482,22 +554,23 @@
   function renderCards() {
     $("cards").innerHTML = S.hits.length ? S.hits.map(h => {
       const v = S.verdicts[h.id] || "";
-      return `<article class="card" data-id="${h.id}">
-        <h4><span class="id">${h.id}</span>${esc(h.title)}</h4>
+      return `<article class="dx" data-id="${h.id}">
+        <div class="code">${h.id}</div>
+        <h4>${esc(h.title)}</h4>
         ${h.safety_flag ? `<p class="safety">涉及伤病风险，须由教练或队医判断后再调整训练。</p>` : ""}
         <p class="sym">${esc(h.symptom_text)}</p>
-        <div class="sub">可能原因（需要测试确认）：</div>
-        <ol>${h.hypotheses.map(y => `<li><b>${esc(y.text)}</b><div class="sub">验证：${esc(y.test)}</div><div class="sub">若成立：${esc(h.prescriptions[y.id] || "–")}</div></li>`).join("")}</ol>
-        <details><summary>依据 · ${esc(h.evidence_level)}</summary>
+        ${h.hypotheses.map(y => `<div class="hyp"><span class="ab">${esc(y.id)}</span><div><b>${esc(y.text)}</b>
+          <div class="kv"><span>验证</span>${esc(y.test)}</div><div class="kv"><span>若成立</span>${esc(h.prescriptions[y.id] || "–")}</div></div></div>`).join("")}
+        <details><summary>依据　${esc(h.evidence_level)}</summary>
           ${h.evidence.map(e => `<div class="ev">【${esc(e.type)}】${esc(e.citation)}${e.doi ? `<br><a href="https://doi.org/${esc(e.doi)}" target="_blank" rel="noopener">doi.org/${esc(e.doi)}</a>` : ""}<div class="sub">${esc(e.supports)}</div></div>`).join("")}
         </details>
         <div class="verdict" role="group" aria-label="教练判断">
           ${[["agree", "认同"], ["test", "先做测试"], ["disagree", "不认同"]].map(([k, t]) => `<button data-v="${k}" aria-pressed="${v === k}">${t}</button>`).join("")}
         </div>
       </article>`;
-    }).join("") : `<div class="note info">各项指标都没有触发问题规则。可以逐帧回看视频做判断，教练的观察可以写在下面的备注里。</div>`;
+    }).join("") : `<div class="clear">各项指标都在参考范围内，没有触发问题规则。可以逐帧回看视频，把观察写进教练备注。</div>`;
     $("cards").querySelectorAll(".verdict button").forEach(b => b.onclick = () => {
-      const id = b.closest(".card").dataset.id;
+      const id = b.closest(".dx").dataset.id;
       S.verdicts[id] = S.verdicts[id] === b.dataset.v ? "" : b.dataset.v;
       renderCards();
     });
@@ -511,17 +584,17 @@
       const W = 600, laneH = 56, H = laneH * 2 + 30, x = f => f / N * W;
       const x0 = 26; const xx = f => x0 + f / N * (W - x0); const lane = (side, y) => steps.filter(s => s.side === side).map(s =>
         `<rect x="${xx(s.touchdown_frame)}" y="${y}" width="${Math.max(3, xx(s.toeoff_frame + 1) - xx(s.touchdown_frame))}" height="${laneH - 10}" rx="4" fill="var(--lane-${side === "left" ? "l" : "r"})"/>` +
-        `<text x="${xx(s.touchdown_frame) + 4}" y="${y + laneH / 2 + 2}" font-size="17" fill="var(--bg)" class="num">${(s.contact_time_s * 1000).toFixed(0)}</text>`).join("");
+        `<text x="${xx(s.touchdown_frame) + 4}" y="${y + laneH / 2 + 2}" font-size="17" font-family="DIN Alternate, Bahnschrift, sans-serif" fill="${side === "left" ? "var(--green-ink)" : "var(--bg)"}">${(s.contact_time_s * 1000).toFixed(0)}</text>`).join("");
       box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" id="stripSvg" role="img" aria-label="左右脚触地时间轴">
-        <rect x="0" y="0" width="${W}" height="${laneH * 2}" fill="var(--surface)" rx="8"/>
+        <rect x="0" y="0" width="${W}" height="${laneH * 2}" fill="var(--sunk)" rx="8"/>
         <line x1="0" x2="${W}" y1="${laneH}" y2="${laneH}" stroke="var(--rule)"/>
         <text x="6" y="${laneH / 2 + 6}" font-size="15" fill="var(--muted)">左</text>
         <text x="6" y="${laneH * 1.5 + 6}" font-size="15" fill="var(--muted)">右</text>
         <g transform="translate(0,5)">${lane("left", 0)}${lane("right", laneH)}</g>
-        <line id="playhead" x1="0" x2="0" y1="0" y2="${laneH * 2}" stroke="var(--flag)" stroke-width="3"/>
+        <line id="playhead" x1="0" x2="0" y1="0" y2="${laneH * 2}" stroke="var(--red)" stroke-width="3"/>
         <text x="0" y="${H - 6}" font-size="15" fill="var(--muted)">0</text>
         <text x="${W}" y="${H - 6}" font-size="15" fill="var(--muted)" text-anchor="end" class="num">${(N / S.fpsReal).toFixed(2)} s</text>
-      </svg><div class="cap"><span>触地时间轴（方块内数字为毫秒）</span><span>点按可跳转</span></div>`;
+      </svg><div class="cap"><span>左右脚触地（毫秒）</span><span>点按跳转</span></div>`;
       S.stripX = f => xx(f);
     } else {
       const sr = R.series || {};
@@ -537,18 +610,18 @@
       const gx = i => pw + 40 + i / (n - 1) * (W - pw - 50), gy = v => 20 + (vmax - v) / (vmax - vmin || 1) * (H - 60);
       const vpath = vy.map((v, i) => `${i ? "L" : "M"}${gx(i).toFixed(1)},${gy(v).toFixed(1)}`).join("");
       const evNames = { liftoff: "离地", peak_velocity: "最大速度", top: "最高", catch: "接杠" };
-      const marks = Object.entries(ev).map(([key, i]) => `<circle cx="${gx(i)}" cy="${gy(vy[i])}" r="6" fill="var(--flag)"/><text x="${gx(i) + 8}" y="${gy(vy[i]) - 8}" font-size="15" fill="var(--muted)">${evNames[key]}</text>`).join("");
+      const marks = Object.entries(ev).map(([key, i]) => `<circle cx="${gx(i)}" cy="${gy(vy[i])}" r="6" fill="var(--red)"/><text x="${gx(i) + 8}" y="${gy(vy[i]) - 8}" font-size="15" fill="var(--muted)">${evNames[key]}</text>`).join("");
       box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" id="stripSvg" role="img" aria-label="杠铃轨迹与速度">
-        <rect x="0" y="0" width="${pw}" height="${H}" rx="8" fill="var(--surface)"/>
+        <rect x="0" y="0" width="${pw}" height="${H}" rx="10" fill="var(--sunk)"/>
         <line x1="${cx0}" x2="${cx0}" y1="10" y2="${H - 10}" stroke="var(--rule)" stroke-dasharray="4 6"/>
-        <path d="${path}" fill="none" stroke="var(--brand)" stroke-width="4" stroke-linejoin="round"/>
+        <path d="${path}" fill="none" stroke="var(--ink)" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
         <text x="12" y="${H - 10}" font-size="15" fill="var(--muted)">← 靠近身体　远离身体 →</text>
         <line x1="${pw + 40}" x2="${W - 10}" y1="${gy(0)}" y2="${gy(0)}" stroke="var(--rule)"/>
-        <path d="${vpath}" fill="none" stroke="var(--ink)" stroke-width="3"/>${marks}
+        <path d="${vpath}" fill="none" stroke="var(--green)" stroke-width="3"/>${marks}
         <text x="${pw + 40}" y="${H - 8}" font-size="15" fill="var(--muted)">杠铃竖直速度（峰值 ${vmax.toFixed(2)} m/s）</text>
-        <line id="playhead" x1="${gx(0)}" x2="${gx(0)}" y1="10" y2="${H - 30}" stroke="var(--flag)" stroke-width="2"/>
-        <circle id="pathDot" cx="${cx0}" cy="${cy0}" r="7" fill="var(--flag)"/>
-      </svg><div class="cap"><span>左：杠铃轨迹　右：速度曲线</span><span>点按曲线可跳转</span></div>`;
+        <line id="playhead" x1="${gx(0)}" x2="${gx(0)}" y1="10" y2="${H - 30}" stroke="var(--red)" stroke-width="2"/>
+        <circle id="pathDot" cx="${cx0}" cy="${cy0}" r="8" fill="var(--red)"/>
+      </svg><div class="cap"><span>杠铃轨迹　竖直速度</span><span>点按跳转</span></div>`;
       S.stripX = gx; S.pathPt = i => [cx0 + dx[i] * k, cy0 - h[i] * k];
     }
     const svg = $("stripSvg");
@@ -578,7 +651,9 @@
     octx.clearRect(0, 0, ov.width, ov.height);
     drawOverlay(octx, S.pose[i], { scale: ov.width / S.W, bar: S.bar, i, contactSide: contactByFrame && contactByFrame.get(i) });
     $("playScrub").value = i;
-    $("frameInfo").textContent = `第 ${i + 1} / ${S.N} 帧 · ${(i / S.fpsReal * 1000).toFixed(0)} ms`;
+    $("playHead").style.left = (S.N > 1 ? i / (S.N - 1) * 100 : 0) + "%";
+    $("frameInfo").textContent = `第 ${i + 1} 帧，共 ${S.N} 帧`;
+    $("frameMs").textContent = `${(i / S.fpsReal * 1000).toFixed(0)} ms`;
     setPlayhead(i);
   }
   async function gotoFrame(i) {
@@ -592,7 +667,8 @@
     drawPlayFrame();
     if ("requestVideoFrameCallback" in pv) pv.requestVideoFrameCallback(loop); else requestAnimationFrame(loop);
   }
-  function stopPlayback() { playing = false; pv.pause(); $("playBtn").textContent = "播放"; }
+  const ICON_PLAY = "<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M8 5v14l11-7z\"/></svg>", ICON_PAUSE = "<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><rect x=\"6\" y=\"5\" width=\"4\" height=\"14\" rx=\"1\"/><rect x=\"14\" y=\"5\" width=\"4\" height=\"14\" rx=\"1\"/></svg>";
+  function stopPlayback() { playing = false; pv.pause(); $("playBtn").innerHTML = ICON_PLAY; $("playBtn").setAttribute("aria-label", "播放"); }
   async function setupPlayer() {
     pv.src = S.url;
     $("playScrub").max = S.N - 1;
@@ -603,7 +679,7 @@
     if (playing) { stopPlayback(); return; }
     const rate = Number(document.querySelector(".speed [aria-pressed=true]").dataset.rate);
     pv.playbackRate = rate;
-    playing = true; $("playBtn").textContent = "暂停";
+    playing = true; $("playBtn").innerHTML = ICON_PAUSE; $("playBtn").setAttribute("aria-label", "暂停");
     try { await pv.play(); } catch (e) { stopPlayback(); toast("无法播放"); return; }
     loop();
   };
@@ -657,7 +733,7 @@
   }
 
   function reportText() {
-    const R = S.result, L = [`知练 CoachMind · ${S.athleteName} · ${ACTION_NAME[S.action]}`, fmtDate(S.date || new Date().toISOString()), ""];
+    const R = S.result, L = [`知练 CoachMind　${S.athleteName}　${ACTION_NAME[S.action]}`, fmtDate(S.date || new Date().toISOString()), ""];
     L.push("【关键指标】");
     for (const [k, v] of Object.entries(R.summary)) { const [n, u] = CM.LABELS[k] || [k, ""]; L.push(`${n}：${CM.fmt(v, u)} ${u}`); }
     L.push("", "【诊断】");
