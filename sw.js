@@ -1,5 +1,5 @@
 /* 离线缓存：首次联网打开后，App、姿态模型和运算库都存在手机里，训练场没网也能用 */
-const CACHE = "coachmind-v6.4";
+const CACHE = "coachmind-v7.1";
 const CORE = ["./", "index.html", "app.js", "engine.js", "coach.js", "cover.js", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => {
@@ -12,12 +12,12 @@ self.addEventListener("fetch", e => {
   const sameOrigin = url.origin === location.origin;
   const isLib = /jsdelivr\.net|storage\.googleapis\.com|npmmirror\.com|unpkg\.com/.test(url.host);
   if (!sameOrigin && !isLib) return;
-  // 自己的代码和姿态模型：先联网取最新（避免坏模型被缓存优先一直卡住），失败再用缓存
   if (sameOrigin && /\.(html|js|task)$|\/$/.test(url.pathname)) {
+    // 自己的代码和姿态模型：先联网取最新，失败再用缓存（避免坏 .task 被缓存优先卡住）
     e.respondWith(fetch(req).then(r => { const c = r.clone(); caches.open(CACHE).then(x => x.put(req, c)); return r; }).catch(() => caches.match(req)));
     return;
   }
-  // 运算库 wasm 等：先用缓存，没有再下载并存起来
+  // 运算库等：先用缓存，没有再下载并存起来
   e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(r => {
     if (r.ok) { const c = r.clone(); caches.open(CACHE).then(x => x.put(req, c)); }
     return r;
