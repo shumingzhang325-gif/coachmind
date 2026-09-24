@@ -368,16 +368,21 @@
   const stageErr = stage => Object.assign(new Error(stage), { stage });
   const MODEL_MIN_BYTES = 1_000_000;
   const isZip = buf => { const b = new Uint8Array(buf, 0, Math.min(4, buf.byteLength || 0)); return (b[0] === 0x50 && b[1] === 0x4B) || (b.length >= 4 && b[0] === 0 && b[1] === 0 && b[2] === 0x50 && b[3] === 0x4B); };
-  // Official .task starts with 00 00 PK; those 2 bytes are part of the archive layout (local header offset=2). Never strip them.
+  // 曾误删官方文件头 00 00 得到 9398196 字节坏包；该尺寸一律视为损坏。
+  const BAD_MODEL_SIZES = new Set([9398196]);
+  const isUsableTask = buf => isZip(buf) && buf.byteLength > MODEL_MIN_BYTES && !BAD_MODEL_SIZES.has(buf.byteLength);
   const normalizeTask = buf => buf;
 
   // 第 2 步：拿到模型文件（本机已保存 → 你的网站 → Google），成功后存进本机
   async function getModelBytes(onStatus) {
     try {
-      const rec = await dbGet("files", "pose_model");
+      const rec = await dbGet("files", "pose_model_v5");
       if (rec && rec.bytes && rec.bytes.byteLength > MODEL_MIN_BYTES) {
-        if (isZip(rec.bytes)) return normalizeTask(rec.bytes);
-        loadLog.push("模型　本机保存的文件已损坏，已删除"); await dbDel("files", "pose_model");
+        if (isUsableTask(rec.bytes)) {
+          loadLog.push(`模型　本机缓存 ${ (rec.bytes.byteLength/1e6).toFixed(2) } MB（${rec.from||"未知"}）`);
+          return normalizeTask(rec.bytes);
+        }
+        loadLog.push(`模型　本机保存的文件已损坏（${rec.bytes.byteLength} 字节），已删除`); await dbDel("files", "pose_model_v5");
       }
     } catch (e) { /* 继续 */ }
     for (const m of MODEL_SOURCES) {
@@ -389,7 +394,10 @@
         if (buf.byteLength < MODEL_MIN_BYTES) { loadLog.push(`模型　${m.name}：文件只有 ${buf.byteLength < 1024 ? buf.byteLength + " 字节" : Math.round(buf.byteLength / 1024) + " KB"}，不完整${buf.byteLength < 1000 ? "。这是 Git LFS 占位文件，GitHub Pages 不提供真实文件" : ""}`); continue; }
         if (!isZip(buf)) { loadLog.push(`模型　${m.name}：文件头不像 .task 模型（${(buf.byteLength / 1e6).toFixed(1)} MB），仍然尝试使用`); }
         const bytes = normalizeTask(buf);
-        await dbPut("files", { id: "pose_model", bytes, from: m.name, saved: new Date().toISOString() });
+        if (!isUsableTask(bytes)) { loadLog.push(`模型　${m.name}：文件不可用（${bytes.byteLength} 字节），跳过`); continue; }
+        const head = [...new Uint8Array(bytes, 0, 4)].map(x => x.toString(16).padStart(2,"0")).join(" ");
+        loadLog.push(`模型　${m.name}：已下载 ${ (bytes.byteLength/1e6).toFixed(2) } MB，文件头 ${head}`);
+        await dbPut("files", { id: "pose_model_v5", bytes, from: m.name, saved: new Date().toISOString() });
         return bytes;
       } catch (e) { loadLog.push(`模型　${m.name}：连不上${m.name === "Google" ? "（国内网络通常访问不了）" : ""}（${errText(e)}）`); }
     }
@@ -413,7 +421,7 @@
           onStatus && onStatus(`正在启动识别（${w.name}${delegate === "CPU" ? "，兼容模式" : ""}）`);
           try {
             const lm = await withTimeout(L.lib.PoseLandmarker.createFromOptions(fileset, {
-              baseOptions: { modelAssetBuffer: new Uint8Array(bytes), delegate }, runningMode: "VIDEO", numPoses: 1,
+              baseOptions: { modelAssetBuffer: new Uint8Array(bytes.slice(0)), delegate }, runningMode: "VIDEO", numPoses: 1,
               minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
             }), 60000, "启动");
             loadLog.push(`成功：运算库 ${L.src.name} + 运行环境 ${w.name} + ${delegate}`);
@@ -474,7 +482,7 @@
     await check("vision_wasm_internal.wasm", 1000000, b => b[0] === 0 && b[1] === 0x61 && b[2] === 0x73 && b[3] === 0x6d);
     await check("pose_landmarker_full.task", 1000000, b => (b[0] === 0x50 && b[1] === 0x4B) || (b[0] === 0 && b[1] === 0 && b[2] === 0x50 && b[3] === 0x4B));
     try {
-      const rec = await dbGet("files", "pose_model");
+      const rec = await dbGet("files", "pose_model_v5");
       if (rec && rec.bytes) ok("本机保存的模型", isZip(rec.bytes), `${(rec.bytes.byteLength / 1e6).toFixed(2)} MB，来自${rec.from}${isZip(rec.bytes) ? "" : "，文件头不对，已损坏"}`);
       else ok("本机保存的模型", true, "还没有");
     } catch (e) { /* 忽略 */ }
@@ -484,7 +492,7 @@
     return `<p style="margin:14px 0 6px;font-weight:600">识别环境自检</p><table class="cmp">${rows.map(r => `<tr><td style="width:40%">${esc(r.name)}</td><td style="text-align:left;font-family:var(--font);font-size:13px;color:${r.good ? "var(--muted)" : "var(--red)"}">${r.good ? "✓ " : "✗ "}${esc(r.detail)}</td></tr>`).join("")}</table>`;
   }
   async function clearCachesAndRetry() {
-    try { await dbDel("files", "pose_model"); } catch (e) { /* 忽略 */ }
+    try { await dbDel("files", "pose_model_v5"); } catch (e) { /* 忽略 */ }
     try { for (const k of await caches.keys()) await caches.delete(k); } catch (e) { /* 忽略 */ }
     landmarkerP = null;
     toast("已清除缓存，重新下载");
@@ -497,7 +505,7 @@
     const buf = await file.arrayBuffer();
     if (buf.byteLength < MODEL_MIN_BYTES) { toast("这个文件太小，不是姿态模型"); return false; }
     if (!isZip(buf) && !confirm("这个文件看起来不像姿态模型（pose_landmarker_full.task）。仍然导入吗？")) return false;
-    await dbPut("files", { id: "pose_model", bytes: buf, from: "手动导入", saved: new Date().toISOString() });
+    await dbPut("files", { id: "pose_model_v5", bytes: buf, from: "手动导入", saved: new Date().toISOString() });
     landmarkerP = null;
     toast(`模型已保存到本机（${(buf.byteLength / 1e6).toFixed(1)} MB）`);
     renderModelState();
@@ -505,7 +513,7 @@
   }
   async function renderModelState() {
     try {
-      const rec = await dbGet("files", "pose_model");
+      const rec = await dbGet("files", "pose_model_v5");
       $("modelState").innerHTML = rec && rec.bytes ? `<b>已保存在本机</b>　${(rec.bytes.byteLength / 1e6).toFixed(1)} MB，来自${esc(rec.from || "")}` : "还没有保存。第一次分析时会自动下载";
     } catch (e) { $("modelState").textContent = "无法读取"; }
   }
