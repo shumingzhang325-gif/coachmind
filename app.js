@@ -368,11 +368,8 @@
   const stageErr = stage => Object.assign(new Error(stage), { stage });
   const MODEL_MIN_BYTES = 1_000_000;
   const isZip = buf => { const b = new Uint8Array(buf, 0, Math.min(4, buf.byteLength || 0)); return (b[0] === 0x50 && b[1] === 0x4B) || (b.length >= 4 && b[0] === 0 && b[1] === 0 && b[2] === 0x50 && b[3] === 0x4B); };
-  const normalizeTask = buf => {
-    const b = new Uint8Array(buf, 0, Math.min(4, buf.byteLength || 0));
-    if (b.length >= 4 && b[0] === 0 && b[1] === 0 && b[2] === 0x50 && b[3] === 0x4B) return buf.slice(2);
-    return buf;
-  };
+  // Official .task starts with 00 00 PK; those 2 bytes are part of the archive layout (local header offset=2). Never strip them.
+  const normalizeTask = buf => buf;
 
   // 第 2 步：拿到模型文件（本机已保存 → 你的网站 → Google），成功后存进本机
   async function getModelBytes(onStatus) {
