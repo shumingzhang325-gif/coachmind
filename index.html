@@ -262,6 +262,61 @@ details.dbg p { font-size: 13px; color: var(--muted); }
 .modelrow span { flex: 1; font-size: 15px; color: var(--muted); }
 .modelrow b { color: var(--ink); }
 
+
+/* ---------- 项目技术库 ---------- */
+.sportgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0 0 30px; }
+@media (min-width: 700px) { .sportgrid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.sport { display: grid; justify-items: start; gap: 6px; text-align: left; border: 0; background: var(--surface); border-radius: 18px; padding: 16px; min-height: 128px; color: var(--ink); }
+.sport svg { color: var(--ink); opacity: 0.9; }
+.sport b { font-size: 17px; }
+.sport span { font-size: 13px; color: var(--muted); }
+.sporthead { display: flex; gap: 16px; align-items: center; margin: 12px 0 18px; }
+.sh-glyph { width: 88px; height: 88px; border-radius: 22px; background: var(--surface); display: grid; place-items: center; flex: none; }
+.sh-path { font-size: 13px; color: var(--muted); }
+.tech { background: var(--surface); border-radius: 20px; padding: 18px; margin: 0 0 14px; }
+.tech h3 { margin: 0 0 12px; font-size: 20px; }
+.tech h4 { margin: 16px 0 6px; font-size: 15px; color: var(--muted); font-weight: 600; }
+.phases-seq { display: flex; flex-wrap: wrap; gap: 6px; }
+.phases-seq span { display: inline-flex; align-items: center; gap: 6px; background: var(--sunk); border-radius: 999px; padding: 5px 12px 5px 5px; font-size: 14px; }
+.phases-seq i { font-style: normal; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: var(--bg); display: grid; place-items: center; font-family: var(--num); font-size: 12px; }
+.kp { margin: 0; padding-left: 18px; } .kp li { margin: 6px 0; font-size: 15px; }
+details.errd { border-top: 1px solid var(--rule); }
+details.errd summary { min-height: 48px; display: flex; align-items: center; font-weight: 600; font-size: 15px; cursor: pointer; list-style: none; }
+details.errd summary::-webkit-details-marker { display: none; }
+details.errd summary::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--red); margin-right: 10px; flex: none; }
+details.errd summary::after { content: "+"; margin-left: auto; color: var(--muted); font-size: 20px; }
+details.errd[open] summary::after { content: "−"; }
+.er { display: grid; grid-template-columns: 92px 1fr; gap: 10px; padding: 6px 0 8px; font-size: 14px; }
+.er span { color: var(--muted); }
+#checkBox .checks { background: var(--surface); border-radius: 16px; padding: 4px 16px; }
+.ck { padding: 12px 0; } .ck + .ck { border-top: 1px solid var(--rule); }
+.ck p { margin: 0 0 8px; font-size: 15px; }
+#checkBox .errd { background: var(--surface); border-radius: 14px; padding: 0 16px; margin-bottom: 8px; border: 0; }
+
+
+/* ---------- 开场动画 ---------- */
+#intro { position: fixed; inset: 0; z-index: 100; background: #06101A; color: #F4F7FA; display: grid; place-items: center; cursor: pointer;
+  animation: in-out .5s cubic-bezier(.4,0,.2,1) 1.95s forwards; }
+#intro.done { display: none; }
+.in-stage { position: relative; width: min(82vw, 420px); aspect-ratio: 360 / 160; }
+.in-lanes { position: absolute; inset: 0; width: 100%; height: 100%; }
+.in-lanes line { stroke: rgba(233,228,218,0.28); stroke-width: 1; stroke-dasharray: 360; stroke-dashoffset: 360; animation: in-draw .7s cubic-bezier(.2,.7,.2,1) forwards; }
+.in-lanes line:nth-child(2) { animation-delay: .07s; } .in-lanes line:nth-child(3) { animation-delay: .14s; }
+.in-lanes line:nth-child(4) { animation-delay: .21s; } .in-lanes line:nth-child(5) { animation-delay: .28s; }
+.in-word { position: absolute; inset: 0; display: grid; place-items: center; clip-path: inset(0 100% 0 0); animation: in-reveal .8s cubic-bezier(.65,0,.35,1) .55s forwards; }
+.in-word span { font-size: min(24vw, 116px); font-weight: 800; letter-spacing: 0.08em; line-height: 1; }
+.in-line { position: absolute; top: -12%; bottom: -12%; left: 0; width: 2px; background: #FF6A4A; box-shadow: 0 0 18px rgba(255,106,74,0.8); opacity: 0;
+  animation: in-sweep .8s cubic-bezier(.65,0,.35,1) .55s forwards; }
+.in-time { position: absolute; right: 0; top: -34px; font-family: var(--num); font-size: 15px; letter-spacing: 0.06em; color: rgba(244,247,250,0.6); }
+.in-tag { position: absolute; left: 0; right: 0; bottom: -46px; margin: 0; text-align: center; font-size: 15px; letter-spacing: 0.12em; color: rgba(244,247,250,0.75);
+  opacity: 0; transform: translateY(6px); animation: in-tag .5s ease-out 1.25s forwards; }
+@keyframes in-draw { to { stroke-dashoffset: 0; } }
+@keyframes in-reveal { to { clip-path: inset(0 0 0 0); } }
+@keyframes in-sweep { 0% { left: 0; opacity: 1; } 90% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
+@keyframes in-tag { to { opacity: 1; transform: none; } }
+@keyframes in-out { to { opacity: 0; transform: scale(1.04); visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { #intro { display: none; } }
+
 /* 底部操作条 */
 .actionbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; padding: 12px var(--pad) calc(12px + env(safe-area-inset-bottom));
   background: linear-gradient(to top, var(--bg) 70%, color-mix(in srgb, var(--bg) 0%, transparent)); display: flex; gap: 10px; justify-content: center; }
@@ -389,6 +444,17 @@ table.steps .side { display: inline-block; width: 22px; height: 6px; border-radi
 </style>
 </head>
 <body>
+<div id="intro" aria-hidden="true">
+  <div class="in-stage">
+    <svg class="in-lanes" viewBox="0 0 360 160" preserveAspectRatio="none">
+      <line x1="0" y1="20" x2="360" y2="20"/><line x1="0" y1="52" x2="360" y2="52"/><line x1="0" y1="84" x2="360" y2="84"/><line x1="0" y1="116" x2="360" y2="116"/><line x1="0" y1="148" x2="360" y2="148"/>
+    </svg>
+    <div class="in-word"><span>知练</span></div>
+    <div class="in-line"></div>
+    <div class="in-time" id="introTime">0.00</div>
+    <p class="in-tag">让每一次训练，都有科学依据</p>
+  </div>
+</div>
 <header class="bar" id="bar">
   <button class="back" id="backBtn" hidden aria-label="返回"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
   <div class="ttl" id="title"></div>
@@ -413,6 +479,10 @@ table.steps .side { display: inline-block; width: 22px; height: 6px; border-radi
       <button class="btn go" id="heroGo" data-action="sprint">分析一段短跑视频</button>
     </div>
   </div>
+
+  <div class="sechead"><h2>项目技术库</h2></div>
+  <div class="chips" id="sportGroups"></div>
+  <div class="sportgrid" id="sportGrid"></div>
 
   <div class="sechead"><h2>运动员</h2></div>
   <div class="people" id="people"></div>
@@ -506,6 +576,12 @@ table.steps .side { display: inline-block; width: 22px; height: 6px; border-radi
 </section>
 
 
+<!-- 项目 -->
+<section class="view" id="v-sport">
+  <div class="sporthead" id="sportHead"></div>
+  <div id="sportBody"></div>
+</section>
+
 <!-- 运动员 -->
 <section class="view" id="v-athlete">
   <div class="board" id="aBoard"></div>
@@ -560,6 +636,7 @@ table.steps .side { display: inline-block; width: 22px; height: 6px; border-radi
 
     <div class="right">
       <div id="resNotes"></div>
+      <div id="checkBox"></div>
       <div id="cmpBox"></div>
       <h3 class="sec" style="margin-top:4px">全部指标</h3>
       <dl class="grid" id="metrics"></dl>
@@ -580,6 +657,7 @@ table.steps .side { display: inline-block; width: 22px; height: 6px; border-radi
 <script src="cover.js"></script>
 <script src="engine.js"></script>
 <script src="coach.js"></script>
+<script src="sports.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -19,7 +19,11 @@
   const MP4BOX_SOURCES = ["mp4box.all.min.js", "https://registry.npmmirror.com/mp4box/0.5.2/files/dist/mp4box.all.min.js", "https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js"];
   const WORK_LONG_SIDE = 1280;           // 处理分辨率：长边 1280 像素
   const MAX_SECONDS_WARN = 3;
-  const ACTION_NAME = { sprint: "短跑", clean: "高翻 / 抓举" };
+  const ACTION_NAME = { sprint: "短跑", clean: "高翻 / 抓举", general: "动作分析" };
+  function actionLabel(o) {
+    if (o && o.sportId && window.SPORTLIB) { const s = SPORTLIB.byId(o.sportId), t = SPORTLIB.tech(o.sportId, o.techId); if (s && t) return `${s.name}　${t.name}`; }
+    return ACTION_NAME[o && o.action] || "";
+  }
 
   // ---------------- 工具 ----------------
   function toast(msg, ms = 2200) { const t = $("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("on"), ms); }
@@ -61,7 +65,7 @@
   const S = {};                // 当前分析的状态
   let viewStack = ["home"];
   const VIEW_META = {
-    home: { title: "", step: 0 }, new: { title: "选择视频", step: 1 }, calib: { title: "片段与标定", step: 2 },
+    home: { title: "", step: 0 }, sport: { title: "项目技术库", step: 0 }, new: { title: "选择视频", step: 1 }, calib: { title: "片段与标定", step: 2 },
     process: { title: "分析", step: 3 }, result: { title: "分析结果", step: 0 }, athlete: { title: "运动员", step: 0 },
   };
   function show(v, push = true) {
@@ -75,7 +79,7 @@
     $("stepper").querySelectorAll("i").forEach((el, k) => el.classList.toggle("on", k < m.step));
     window.scrollTo(0, 0);
     $("bar").hidden = v === "home";
-    if (v === "home") { viewStack = ["home"]; stopPlayback(); renderHome(); renderPeople(); renderModelState(); if (cover) requestAnimationFrame(() => cover.resize()); }
+    if (v === "home") { viewStack = ["home"]; stopPlayback(); renderHome(); renderPeople(); renderSports(); renderModelState(); if (cover) requestAnimationFrame(() => cover.resize()); }
   }
   $("backBtn").onclick = () => {
     if (S.processing) { S.cancel = true; return; }
@@ -102,12 +106,14 @@
       const d = new Date(a.date);
       const [val, unit] = a.action === "sprint"
         ? [a.summary.contact_time_s != null ? a.summary.contact_time_s.toFixed(3) : "–", "s 触地"]
+        : a.action === "general"
+        ? (a.summary.jump_height_cm != null ? [a.summary.jump_height_cm.toFixed(1), "cm 跳高"] : [a.summary.knee_min_deg != null ? a.summary.knee_min_deg.toFixed(0) : "–", "° 最小膝角"])
         : [a.summary.peak_bar_velocity_mps != null ? a.summary.peak_bar_velocity_mps.toFixed(2) : "–", "m/s 峰速"];
       const n = (a.hits || []).length;
       const tag = a.reviewed ? `<span class="ok">教练已确认</span>` : n ? `<span class="flag">${n} 个待查问题</span>` : "";
       return `<li><button data-id="${a.id}">
         <span class="d"><b>${String(d.getDate()).padStart(2, "0")}</b>${d.getMonth() + 1}月</span>
-        <span><span class="who">${esc(a.athleteName || "未指定")}</span><br><span class="what">${ACTION_NAME[a.action]}　${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}</span></span>
+        <span><span class="who">${esc(a.athleteName || "未指定")}</span><br><span class="what">${esc(actionLabel(a))}　${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}</span></span>
         <span class="val">${val}<small>${unit}</small>${tag}</span></button></li>`;
     }).join("") : `<li class="blank">还没有记录。选一个动作，分析第一段视频。</li>`;
     $("historyList").querySelectorAll("button[data-id]").forEach(b => b.onclick = () => openSaved(Number(b.dataset.id)));
@@ -115,10 +121,10 @@
   document.querySelectorAll(".lane").forEach(b => b.onclick = () => startNew(b.dataset.action));
 
   // ---------------- 新建分析 ----------------
-  async function startNew(action) {
+  async function startNew(action, opts = {}) {
     for (const k of Object.keys(S)) delete S[k];
-    S.action = action;
-    $("newTitle").textContent = ACTION_NAME[action] + "分析";
+    S.action = action; S.sportId = opts.sportId || null; S.techId = opts.techId || null;
+    $("newTitle").textContent = S.sportId ? actionLabel(S) : ACTION_NAME[action] + "分析";
     $("markerField").hidden = action !== "sprint";
     $("fileInfo").innerHTML = ""; $("fpsBox").hidden = true; $("fileInput").value = ""; $("pickBox").hidden = false;
     await renderAthleteSelect();
@@ -331,7 +337,7 @@
     $("skipCalib").hidden = S.action !== "sprint";
     $("calibRuler").style.pointerEvents = range ? "" : "none";
     $("calibRuler").style.opacity = range ? "1" : "0.45";
-    $("calibNext").textContent = range ? "下一步：标定" : "开始分析";
+    $("calibNext").textContent = range ? (S.action === "general" ? "开始分析" : "下一步：标定") : "开始分析";
     $("calibNext").disabled = !range && ((S.action === "clean" && S.calibPts.length < 2) || (S.action === "sprint" && S.calibPts.length === 1));
     calibText();
   }
@@ -357,6 +363,7 @@
   $("undoPt").onclick = () => { S.calibPts.pop(); drawCalib(); updateCalibUI(); };
   $("skipCalib").onclick = () => { S.calibPts = []; runAnalysis(); };
   $("calibNext").onclick = async () => {
+    if (S.phase === "range" && S.action === "general") { S.calibPts = []; runAnalysis(); return; }
     if (S.phase === "range") { S.phase = "calib"; S.calibPts = []; await enterCalib(); return; }
     if (S.action === "sprint" && S.calibPts.length === 1) { toast("还差一个标志桶"); return; }
     runAnalysis();
@@ -370,44 +377,43 @@
   const isZip = buf => { const b = new Uint8Array(buf, 0, 4); return b[0] === 0x50 && b[1] === 0x4B; };
 
   // 检查 .task（ZIP）结构是否完整：末尾目录记录、中央目录、里面有没有 .tflite
+  // 检查 .task（ZIP）结构是否完整。直接按字节读取，不用 DataView（Safari 对下载得到的数据会报错）
   function zipCheck(buf) {
-    const u = new Uint8Array(buf), n = u.length;
+    let u;
+    try { u = buf instanceof Uint8Array ? buf : new Uint8Array(buf); } catch (e) { return { ok: false, reason: "无法读取文件内容" }; }
+    const n = u.length;
+    const u16 = i => u[i] | (u[i + 1] << 8);
+    const u32 = i => (u[i] | (u[i + 1] << 8) | (u[i + 2] << 16) | (u[i + 3] << 24)) >>> 0;
     if (n < 22) return { ok: false, reason: "文件太小" };
-    const dv = new DataView(buf.buffer, buf.byteOffset || 0, n);
-    let base = 0;
-    // 官方包以 00 00 PK 开头（本地头偏移=2）；干净重打包以 PK 开头
-    if (u[0] === 0 && u[1] === 0 && u[2] === 0x50 && u[3] === 0x4B) base = 2;
-    if (!(u[base] === 0x50 && u[base + 1] === 0x4B && u[base + 2] === 0x03 && u[base + 3] === 0x04))
-      return { ok: false, reason: "开头不是 ZIP 文件头" };
+    if (u32(0) !== 0x04034b50) return { ok: false, reason: "开头不是 ZIP 文件头" };
     let e = -1;
-    for (let i = n - 22; i >= Math.max(0, n - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    for (let i = n - 22; i >= Math.max(0, n - 65557); i--) if (u[i] === 0x50 && u32(i) === 0x06054b50) { e = i; break; }
     if (e < 0) return { ok: false, reason: "找不到 ZIP 结尾目录，文件被截断或损坏" };
-    const count = dv.getUint16(e + 10, true), cdSize = dv.getUint32(e + 12, true), cdOff = dv.getUint32(e + 16, true);
+    const count = u16(e + 10), cdSize = u32(e + 12), cdOff = u32(e + 16);
     if (cdOff + cdSize > e) return { ok: false, reason: "ZIP 目录位置对不上，文件内容被改动过（常见于换行符转换）" };
     const names = [];
     let p = cdOff;
     for (let k = 0; k < count; k++) {
-      if (p + 46 > n || dv.getUint32(p, true) !== 0x02014b50) return { ok: false, reason: "ZIP 目录记录损坏" };
-      const nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
-      const lho = dv.getUint32(p + 42, true);
-      if (lho + 4 > n || dv.getUint32(lho, true) !== 0x04034b50) return { ok: false, reason: "ZIP 内文件位置错乱，文件内容被改动过" };
-      names.push(new TextDecoder().decode(u.slice(p + 46, p + 46 + nl)));
+      if (p + 46 > n || u32(p) !== 0x02014b50) return { ok: false, reason: "ZIP 目录记录损坏" };
+      const nl = u16(p + 28), xl = u16(p + 30), cl = u16(p + 32), lho = u32(p + 42);
+      if (lho + 4 > n || u32(lho) !== 0x04034b50) return { ok: false, reason: "ZIP 内文件位置错乱，文件内容被改动过" };
+      let name = ""; for (let j = 0; j < nl; j++) name += String.fromCharCode(u[p + 46 + j]);
+      names.push(name);
       p += 46 + nl + xl + cl;
     }
     if (!names.some(s => s.endsWith(".tflite"))) return { ok: false, reason: "ZIP 里没有模型（.tflite）" };
-    // 曾误删官方文件头得到的坏包尺寸
-    if (n === 9398196) return { ok: false, reason: "已知损坏的截断模型（9398196 字节）" };
-    return { ok: true, names, bytes: n, head: [...u.slice(0, 4)].map(x => x.toString(16).padStart(2, "0")).join(" ") };
+    return { ok: true, names };
   }
+  function safeZipCheck(buf) { try { return zipCheck(buf); } catch (e) { return { ok: false, reason: "检查时出错：" + errText(e) }; } }
 
   // 模型候选：本机保存 → 你的网站 → Google。每个都先检查 ZIP 结构，坏的跳过
   async function* modelCandidates(onStatus) {
     try {
-      const rec = await dbGet("files", "pose_model_v7");
+      const rec = await dbGet("files", "pose_model");
       if (rec && rec.bytes) {
-        const z = zipCheck(rec.bytes);
+        const z = safeZipCheck(rec.bytes);
         if (z.ok) yield { bytes: rec.bytes, from: "本机保存（" + (rec.from || "") + "）", cached: true };
-        else { loadLog.push(`模型　本机保存的文件：${z.reason}，已删除`); await dbDel("files", "pose_model_v7"); }
+        else { loadLog.push(`模型　本机保存的文件：${z.reason}，已删除`); await dbDel("files", "pose_model"); }
       }
     } catch (e) { /* 继续 */ }
     for (const m of MODEL_SOURCES) {
@@ -419,7 +425,7 @@
         buf = await withTimeout(r.arrayBuffer(), 120000, "下载");
       } catch (e) { loadLog.push(`模型　${m.name}：连不上${m.name === "Google" ? "（国内网络通常访问不了）" : ""}（${errText(e)}）`); continue; }
       if (buf.byteLength < 1000 && new TextDecoder().decode(new Uint8Array(buf, 0, 7)) === "version") { loadLog.push(`模型　${m.name}：这是 Git LFS 占位文件（${buf.byteLength} 字节），GitHub Pages 不提供真实文件`); continue; }
-      const z = zipCheck(buf);
+      const z = safeZipCheck(buf);
       if (!z.ok) { loadLog.push(`模型　${m.name}：文件已损坏（${z.reason}，${(buf.byteLength / 1e6).toFixed(2)} MB）`); continue; }
       yield { bytes: buf, from: m.name, cached: false };
     }
@@ -452,7 +458,7 @@
           onStatus && onStatus(`正在启动识别（${w.name}${delegate === "CPU" ? "，兼容模式" : ""}）`);
           try {
             const lm = await withTimeout(L.lib.PoseLandmarker.createFromOptions(fileset, {
-              baseOptions: { modelAssetBuffer: new Uint8Array(bytes.slice(0)), delegate }, runningMode: "VIDEO", numPoses: 1,
+              baseOptions: { modelAssetBuffer: new Uint8Array(bytes), delegate }, runningMode: "VIDEO", numPoses: 1,
               minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
             }), 60000, "启动");
             loadLog.push(`成功：运算库 ${L.src.name} + 运行环境 ${w.name} + ${delegate}`);
@@ -479,14 +485,14 @@
         for await (const [L, w] of pairs()) {
           const r = await tryStart(L, w, M.bytes);
           if (r.lm) {
-            if (!M.cached) { try { await dbPut("files", { id: "pose_model_v7", bytes: M.bytes, from: M.from, saved: new Date().toISOString() }); } catch (e) { /* 忽略 */ } }
+            if (!M.cached) { try { await dbPut("files", { id: "pose_model", bytes: M.bytes, from: M.from, saved: new Date().toISOString() }); } catch (e) { /* 忽略 */ } }
             return r.lm;
           }
           if (r.modelBad) { modelBad = true; break; }
         }
         if (!modelBad) { runtimeOnly = true; break; }            // 模型没问题，是运行环境的问题
         loadLog.push(`模型　${M.from}：识别程序打不开这个模型文件，换下一个来源`);
-        if (M.cached) { try { await dbDel("files", "pose_model_v7"); } catch (e) { /* 忽略 */ } }
+        if (M.cached) { try { await dbDel("files", "pose_model"); } catch (e) { /* 忽略 */ } }
         runtimeOnly = false;
       }
       if (!libs.length && libTried >= LIB_SOURCES.length) throw stageErr("lib");
@@ -528,11 +534,11 @@
     try {
       const r = await withTimeout(fetch(new URL("pose_landmarker_full.task", location.href).href, { cache: "no-store" }), 30000, "下载");
       if (!r.ok) ok("pose_landmarker_full.task", false, r.status === 404 ? "仓库里没有这个文件（404）" : `服务器返回 ${r.status}`);
-      else { const buf = await r.arrayBuffer(), z = zipCheck(buf); ok("pose_landmarker_full.task", z.ok, z.ok ? `${(buf.byteLength / 1e6).toFixed(2)} MB，结构完整` : `${(buf.byteLength / 1e6).toFixed(2)} MB，${z.reason}`); }
+      else { const buf = await r.arrayBuffer(), z = safeZipCheck(buf); ok("pose_landmarker_full.task", z.ok, z.ok ? `${(buf.byteLength / 1e6).toFixed(2)} MB，结构完整` : `${(buf.byteLength / 1e6).toFixed(2)} MB，${z.reason}`); }
     } catch (e) { ok("pose_landmarker_full.task", false, `读取失败：${errText(e)}`); }
     try {
-      const rec = await dbGet("files", "pose_model_v7");
-      if (rec && rec.bytes) { const z = zipCheck(rec.bytes); ok("本机保存的模型", z.ok, `${(rec.bytes.byteLength / 1e6).toFixed(2)} MB，来自${rec.from}${z.ok ? "" : "，" + z.reason}`); }
+      const rec = await dbGet("files", "pose_model");
+      if (rec && rec.bytes) { const z = safeZipCheck(rec.bytes); ok("本机保存的模型", z.ok, `${(rec.bytes.byteLength / 1e6).toFixed(2)} MB，来自${rec.from}${z.ok ? "" : "，" + z.reason}`); }
       else ok("本机保存的模型", true, "还没有");
     } catch (e) { /* 忽略 */ }
     return rows;
@@ -541,7 +547,7 @@
     return `<p style="margin:14px 0 6px;font-weight:600">识别环境自检</p><table class="cmp">${rows.map(r => `<tr><td style="width:40%">${esc(r.name)}</td><td style="text-align:left;font-family:var(--font);font-size:13px;color:${r.good ? "var(--muted)" : "var(--red)"}">${r.good ? "✓ " : "✗ "}${esc(r.detail)}</td></tr>`).join("")}</table>`;
   }
   async function clearCachesAndRetry() {
-    try { await dbDel("files", "pose_model_v7"); } catch (e) { /* 忽略 */ }
+    try { await dbDel("files", "pose_model"); } catch (e) { /* 忽略 */ }
     try { for (const k of await caches.keys()) await caches.delete(k); } catch (e) { /* 忽略 */ }
     landmarkerP = null;
     toast("已清除缓存，重新下载");
@@ -553,9 +559,9 @@
     if (!file) return false;
     const buf = await file.arrayBuffer();
     if (buf.byteLength < MODEL_MIN_BYTES) { toast("这个文件太小，不是姿态模型"); return false; }
-    const z = zipCheck(buf);
+    const z = safeZipCheck(buf);
     if (!z.ok) { toast(`这个文件不能用：${z.reason}`); return false; }
-    await dbPut("files", { id: "pose_model_v7", bytes: buf, from: "手动导入", saved: new Date().toISOString() });
+    await dbPut("files", { id: "pose_model", bytes: buf, from: "手动导入", saved: new Date().toISOString() });
     landmarkerP = null;
     toast(`模型已保存到本机（${(buf.byteLength / 1e6).toFixed(1)} MB）`);
     renderModelState();
@@ -563,7 +569,7 @@
   }
   async function renderModelState() {
     try {
-      const rec = await dbGet("files", "pose_model_v7");
+      const rec = await dbGet("files", "pose_model");
       $("modelState").innerHTML = rec && rec.bytes ? `<b>已保存在本机</b>　${(rec.bytes.byteLength / 1e6).toFixed(1)} MB，来自${esc(rec.from || "")}` : "还没有保存。第一次分析时会自动下载";
     } catch (e) { $("modelState").textContent = "无法读取"; }
   }
@@ -577,6 +583,14 @@
   // ---------------- 逐帧分析 ----------------
   const pc = $("procCanvas");
   async function runAnalysis() {
+    if (window.CM_PREVIEW) {
+      show("process");
+      $("procHead").hidden = true; $("procStage").hidden = true; $("procError").hidden = false;
+      $("procError").innerHTML = `<h3>预览版不能做视频识别</h3><p>这个链接是设计与功能预览，所在平台的安全策略不允许加载姿态识别程序。运动员档案、训练计划、项目技术库都可以正常使用。</p>
+        <p>视频分析请打开正式版：</p><p><a href="https://shumingzhang325-gif.github.io/coachmind/" style="color:var(--green);word-break:break-all">shumingzhang325-gif.github.io/coachmind</a></p>`;
+      $("retryProc").hidden = true; $("cancelProc").textContent = "返回";
+      return;
+    }
     show("process");
     S.processing = true; S.cancel = false;
     pc.width = S.W; pc.height = S.H;
@@ -588,7 +602,7 @@
     try { lm = await getLandmarker(t => { $("procStatus").textContent = t + "…"; }); }
     catch (e) {
       S.processing = false;
-      const stage = e.stage || "runtime";
+      const stage = e.stage || "internal";
       $("procHead").hidden = true;
       $("procError").hidden = false;
       const detail = `<div id="diagBox"><p class="lead" style="font-size:13px;margin:12px 0 0">正在自检识别环境…</p></div>
@@ -604,6 +618,7 @@
           <ol><li><b>最快：</b>在能访问国外网站的网络下，用 Safari 打开首页“姿态识别模型”里的地址，下载到“文件”App，然后点下面的“从文件导入模型”</li>
           <li>让仓库里的 pose_landmarker_full.task 恢复正常（上面写着“你的网站”的那一行说明了它现在的问题）</li></ol>
           <label class="btn go" for="modelFile" style="margin-top:14px;width:100%">从文件导入模型</label>`,
+        internal: `<h3>App 出错了</h3><p>这是 App 自身的程序错误，不是你的文件或网络问题。请把这一屏截图发给开发者：</p><p style="font-family:monospace;font-size:13px;color:var(--muted)">${esc(errText(e))}</p>`,
         runtime: `<h3>识别程序启动失败</h3><p>模型已经拿到，但识别程序没有启动起来。App 已经把所有来源组合都试过了。下面的自检表里标红的一项就是原因。</p>
           <ol><li>最常见：仓库里的运算库和运行环境文件版本不一致，或上传时被改坏（例如被存成了 Git LFS 占位文件）。按自检结果重新上传那几个文件</li><li>点“清除缓存后重新下载”，排除手机里缓存了坏文件的可能</li><li>还不行就把这一整屏截图发给开发者</li></ol>`,
       };
@@ -666,6 +681,7 @@
     const fs = S.fpsReal;
     S.scale = scale;
     S.result = S.action === "sprint" ? CM.analyzeSprint(S.pose, fs, TH, scale)
+      : S.action === "general" ? CM.analyzeGeneral(S.pose, fs, TH)
       : CM.analyzeClean(S.bar, fs, scale, TH, detected > 0.5 ? S.pose : null);
     if (detected < 0.8) S.result.notes.unshift(`只有 ${Math.round(detected * 100)}% 的帧识别到人体，结果可能不完整。检查光线、遮挡和人物大小。`);
     if (S.dupes > S.N * 0.03) S.result.notes.unshift(`有 ${S.dupes} 帧读取重复，时间类指标可能偏差。`);
@@ -684,6 +700,10 @@
       }
       ctx.fillStyle = "#34C27A";
       for (let j = 11; j < 33; j++) if (p[j]) { ctx.beginPath(); ctx.arc(p[j][0] * s, p[j][1] * s, lw * 1.6, 0, 7); ctx.fill(); }
+    }
+    if (o.air) {
+      ctx.fillStyle = "#FF6A4A"; ctx.font = `600 ${Math.round(lw * 9)}px ${getComputedStyle(document.body).fontFamily}`;
+      ctx.fillText("腾空", lw * 6, lw * 14);
     }
     if (o.contactSide) {
       const S2 = CM.SIDES[o.contactSide];
@@ -711,6 +731,8 @@
   const BOARD = {
     sprint: ["contact_time_s", "step_length_m", "speed_mps"],
     clean: ["peak_bar_velocity_mps", "max_bar_height_m", "drop_under_m"],
+    general: ["jump_height_cm", "flight_time_s", "landing_knee_min_deg"],
+    generalNoJump: ["knee_min_deg", "hip_min_deg", "trunk_lean_max_deg"],
   };
   function showResult(live) {
     $("playerWrap").hidden = !live; $("noVideo").hidden = live;
@@ -722,10 +744,10 @@
     const R = S.result;
     const hitMetrics = new Set(S.hits.map(h => h.condition.metric));
     const d = new Date(S.date || Date.now());
-    const [k0, k1, k2] = BOARD[S.action];
+    const [k0, k1, k2] = BOARD[S.action === "general" && R.summary.jump_height_cm == null ? "generalNoJump" : S.action];
     const cell = k => { const v = R.summary[k]; const [name, unit] = CM.LABELS[k] || [k, ""]; return { v: v == null ? "–" : CM.fmt(v, unit), unit: v == null ? "" : unit, name, hit: hitMetrics.has(k) }; };
     const m0 = cell(k0), m1 = cell(k1), m2 = cell(k2);
-    $("board").innerHTML = `<div class="who"><span>${esc(S.athleteName || "")}　${ACTION_NAME[S.action]}</span><span class="n">${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}</span></div>
+    $("board").innerHTML = `<div class="who"><span>${esc(S.athleteName || "")}　${esc(actionLabel(S))}</span><span class="n">${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}</span></div>
       <div class="main"><b>${m0.v}</b><small>${m0.unit}</small></div>
       <div class="lbl ${m0.hit ? "hit" : ""}">${m0.name}${m0.hit ? "　偏离参考值" : ""}</div>
       <div class="sub">${[m1, m2].map(m => `<div class="${m.hit ? "hit" : ""}"><b>${m.v}<small>${m.unit}</small></b><span class="lbl">${m.name}</span></div>`).join("")}</div>`;
@@ -750,7 +772,7 @@
       R.steps.forEach(s => { for (let f = s.touchdown_frame; f <= s.toeoff_frame; f++) contactByFrame.set(f, s.side); });
     }
     renderStrip();
-    renderCompare(); renderDebug(); setupMarking();
+    renderCompare(); renderDebug(); setupMarking(); renderChecklist();
     $("toPlanBtn").hidden = !S.hits.length || !S.athleteId;
   }
 
@@ -782,6 +804,22 @@
   // 触地条（短跑） / 杠铃轨迹与速度（高翻）
   function renderStrip() {
     const R = S.result, box = $("strip");
+    if (S.action === "general") {
+      const sr = R.series || {}; if (!sr.knee || !sr.knee.length) { box.innerHTML = ""; return; }
+      const n = sr.knee.length, W = 600, H = 220, x = i => 34 + i / Math.max(1, n - 1) * (W - 40), y = v => 12 + (190 - v) / 190 * (H - 40);
+      const line = (arr, c) => `<path d="${arr.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(Number.isFinite(v) ? v : 180).toFixed(1)}`).join("")}" fill="none" stroke="${c}" stroke-width="2.5" stroke-linejoin="round"/>`;
+      let bands = "", s0 = -1;
+      (sr.air || []).forEach((v, i) => { if (v && s0 < 0) s0 = i; if ((!v || i === n - 1) && s0 >= 0) { bands += `<rect x="${x(s0)}" y="6" width="${Math.max(2, x(i) - x(s0))}" height="${H - 34}" fill="color-mix(in srgb, var(--red) 16%, transparent)"/>`; s0 = -1; } });
+      const grid = [60, 90, 120, 150, 180].map(v => `<line x1="34" x2="${W - 6}" y1="${y(v)}" y2="${y(v)}" stroke="var(--rule)"/><text x="2" y="${y(v) + 4}" font-size="12" fill="var(--muted)" font-family="DIN Alternate, Bahnschrift, sans-serif">${v}°</text>`).join("");
+      box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" id="stripSvg" role="img" aria-label="关节角度曲线">${grid}${bands}
+        ${line(sr.knee, "var(--green)")}${line(sr.hip, "var(--ink)")}${sr.elbow ? line(sr.elbow, "var(--muted)") : ""}
+        <line id="playhead" x1="${x(0)}" x2="${x(0)}" y1="6" y2="${H - 28}" stroke="var(--red)" stroke-width="2.5"/>
+        <text x="34" y="${H - 6}" font-size="13" fill="var(--green)">膝角</text><text x="84" y="${H - 6}" font-size="13" fill="var(--ink)">髋角</text><text x="134" y="${H - 6}" font-size="13" fill="var(--muted)">肘角</text><text x="184" y="${H - 6}" font-size="13" fill="var(--red)">红色区域 = 腾空</text></svg>
+        <div class="cap"><span>关节角度随时间变化</span><span>点按跳转</span></div>`;
+      S.stripX = x;
+      const svg = $("stripSvg"); svg.addEventListener("pointerdown", stripSeek); svg.addEventListener("pointermove", e => { if (e.buttons) stripSeek(e); });
+      return;
+    }
     if (S.action === "sprint") {
       const steps = R.steps || [], N = S.N || (steps.length ? steps[steps.length - 1].toeoff_frame + 30 : 100);
       const W = 600, laneH = 56, H = laneH * 2 + 30, x = f => f / N * W;
@@ -852,7 +890,7 @@
     const w = pv.clientWidth, h = pv.clientHeight, dpr = window.devicePixelRatio || 1;
     if (ov.width !== Math.round(w * dpr)) { ov.width = Math.round(w * dpr); ov.height = Math.round(h * dpr); }
     octx.clearRect(0, 0, ov.width, ov.height);
-    drawOverlay(octx, ((S.result && S.result.pose) || S.pose)[i], { scale: ov.width / S.W, bar: S.bar, i, contactSide: contactByFrame && contactByFrame.get(i) });
+    drawOverlay(octx, ((S.result && S.result.pose) || S.pose)[i], { scale: ov.width / S.W, bar: S.bar, i, contactSide: contactByFrame && contactByFrame.get(i), air: S.action === "general" && S.result.series && S.result.series.air && S.result.series.air[i] });
     $("playScrub").value = i;
     $("playHead").style.left = (S.N > 1 ? i / (S.N - 1) * 100 : 0) + "%";
     $("frameInfo").textContent = `第 ${i + 1} 帧，共 ${S.N} 帧`;
@@ -898,6 +936,11 @@
   // ---------------- 保存、分享、历史 ----------------
   function packSeries() {
     const R = S.result;
+    if (S.action === "general" && R.series && R.series.knee) {
+      const step = Math.max(1, Math.ceil(R.series.knee.length / 600));
+      const pick = arr => arr.filter((_, i) => i % step === 0).map(v => round(v, 1));
+      return { knee: pick(R.series.knee), hip: pick(R.series.hip), elbow: pick(R.series.elbow), air: R.series.air.filter((_, i) => i % step === 0) };
+    }
     if (S.action !== "clean" || !R.series || !R.series.h) return {};
     const step = Math.max(1, Math.ceil(R.series.h.length / 600));
     const pick = a => a.filter((_, i) => i % step === 0).map(v => round(v, 4));
@@ -908,7 +951,8 @@
     const R = S.result;
     const rec = {
       id: S.savedId || Date.now(), date: S.date || new Date().toISOString(),
-      athleteId: S.athleteId, athleteName: S.athleteName, action: S.action, fileName: S.file ? S.file.name : S.fileName,
+      athleteId: S.athleteId, athleteName: S.athleteName, action: S.action, sportId: S.sportId || null, techId: S.techId || null, checks: S.checks || {},
+      jumps: (S.result.jumps || []).map(j => Object.assign({}, j)), fileName: S.file ? S.file.name : S.fileName,
       fpsReal: S.fpsReal, N: S.N, summary: R.summary, steps: R.steps || null, notes: R.notes || [],
       hits: S.hits.map(h => h.id), verdicts: S.verdicts, coachNote: $("coachNote").value.trim(),
       reviewed: Object.values(S.verdicts).some(Boolean), series: S.savedSeries || packSeries(),
@@ -926,17 +970,18 @@
     const rec = (await dbAll("analyses")).find(a => a.id === id);
     if (!rec) return;
     for (const k of Object.keys(S)) delete S[k];
-    Object.assign(S, { action: rec.action, athleteId: rec.athleteId, athleteName: rec.athleteName, fpsReal: rec.fpsReal, N: rec.N,
+    Object.assign(S, { action: rec.action, sportId: rec.sportId, techId: rec.techId, checks: Object.assign({}, rec.checks || {}), athleteId: rec.athleteId, athleteName: rec.athleteName, fpsReal: rec.fpsReal, N: rec.N,
       savedId: rec.id, date: rec.date, verdicts: Object.assign({}, rec.verdicts), coachNote: rec.coachNote, fileName: rec.fileName, savedSeries: rec.series });
     const series = rec.series || {};
-    S.result = { action: rec.action, summary: rec.summary, steps: rec.steps, notes: rec.notes, events: series.events || {}, series };
+    S.result = { action: rec.action, summary: rec.summary, steps: rec.steps, notes: rec.notes, events: series.events || {}, series, jumps: rec.jumps || [] };
+    if (rec.action === "general" && series.knee) S.N = series.knee.length;
     if (rec.action === "clean" && series.h) S.N = series.h.length;
     S.hits = CM.matchCards(S.result, TH, CARDS);
     showResult(false);
   }
 
   function reportText() {
-    const R = S.result, L = [`知练 CoachMind　${S.athleteName}　${ACTION_NAME[S.action]}`, fmtDate(S.date || new Date().toISOString()), ""];
+    const R = S.result, L = [`知练 CoachMind　${S.athleteName}　${actionLabel(S)}`, fmtDate(S.date || new Date().toISOString()), ""];
     L.push("【关键指标】");
     for (const [k, v] of Object.entries(R.summary)) { const [n, u] = CM.LABELS[k] || [k, ""]; L.push(`${n}：${CM.fmt(v, u)} ${u}`); }
     L.push("", "【诊断】");
@@ -1308,6 +1353,64 @@
     toast("已加入训练计划重点");
   };
 
+
+  // ================= 项目技术库 =================
+  const GLYPH = {
+    sprint: '<circle cx="31" cy="8" r="4"/><path d="M28 14l-7 10 8 5-3 12M21 24l-9 2M28 14l6 8 8-1M26 34l-11 6"/>',
+    run: '<circle cx="26" cy="8" r="4"/><path d="M25 14l-3 13 6 6-2 11M22 27l-7 4M25 15l5 8 6 1M24 18l-7 5"/>',
+    jump: '<circle cx="34" cy="10" r="4"/><path d="M31 16l-9 8 10 3M22 24l-10 4-4 8M31 16l7 6M26 20l-8-6M6 44h36"/>',
+    lift: '<path d="M6 12h36"/><rect x="7" y="7" width="4" height="10" rx="1"/><rect x="37" y="7" width="4" height="10" rx="1"/><circle cx="24" cy="21" r="3.5"/><path d="M24 25v9M18 44l6-10 6 10M17 12l7 10 7-10"/>',
+    flip: '<circle cx="20" cy="22" r="4"/><path d="M24 24c6 0 8 4 6 8s-8 4-10 0M20 26l-4 6"/><path d="M36 10a16 16 0 1 0 4 16" stroke-dasharray="3 4"/><path d="M40 20l0 6-6 0"/>',
+    dive: '<circle cx="24" cy="30" r="4"/><path d="M24 26V10M20 8l4 2 4-2M24 34l-2 6M24 34l2 6M6 44c4-2 8-2 12 0s8 2 12 0 8-2 12 0"/>',
+    spike: '<path d="M4 44V24h2v20"/><circle cx="36" cy="6" r="3.5"/><circle cx="24" cy="14" r="4"/><path d="M24 18l1 12-4 12M25 30l6 12M24 20l8-10M24 20l-8 2"/>',
+    racket: '<circle cx="22" cy="14" r="4"/><path d="M22 18l1 12-5 12M23 30l6 12M22 20l9-8M22 21l-8 4"/><ellipse cx="35" cy="7" rx="4" ry="5"/><path d="M33 11l-2 3"/>',
+    shoot: '<circle cx="24" cy="12" r="4"/><path d="M24 16v14l-5 12M24 30l5 12M24 18l3-9M24 18l-3-9"/><circle cx="25" cy="5" r="3"/><path d="M34 4h10M36 4l2 5h2l2-5"/>',
+    kick: '<circle cx="20" cy="8" r="4"/><path d="M20 12l2 14-4 16M22 26l12-6M20 16l-8 6M20 16l8 3"/><circle cx="39" cy="22" r="4"/>',
+  };
+  const glyph = (k, size = 40) => `<svg viewBox="0 0 48 48" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${GLYPH[k] || GLYPH.run}</svg>`;
+  let sportGroup = "";
+  function renderSports() {
+    if (!window.SPORTLIB) return;
+    const G = SPORTLIB.GROUPS;
+    $("sportGroups").innerHTML = [`<button aria-pressed="${!sportGroup}" data-g="">全部</button>`].concat(G.map(g => `<button aria-pressed="${sportGroup === g.id}" data-g="${g.id}">${g.name}</button>`)).join("");
+    $("sportGroups").querySelectorAll("button").forEach(b => b.onclick = () => { sportGroup = b.dataset.g; renderSports(); });
+    const list = SPORTLIB.SPORTS.filter(s => !sportGroup || s.group === sportGroup);
+    $("sportGrid").innerHTML = list.map(s => `<button class="sport" data-s="${s.id}">${glyph(s.glyph)}<b>${esc(s.name)}</b><span>${esc(G.find(g => g.id === s.group).name)}　${s.techniques.length} 项技术</span></button>`).join("");
+    $("sportGrid").querySelectorAll(".sport").forEach(b => b.onclick = () => openSport(b.dataset.s));
+  }
+  function errorRows(er) {
+    const row = (k, v) => v && v !== "—" ? `<div class="er"><span>${k}</span><div>${Array.isArray(v) ? v.map(esc).join("<br>") : esc(v)}</div></div>` : "";
+    return row("视频里怎么看", er.look) + row("技术原因", er.tech) + row("身体原因", er.body) + row("纠正练习", er.drills) + row("伤病风险", er.risk);
+  }
+  function openSport(id) {
+    const s = SPORTLIB.byId(id), g = SPORTLIB.GROUPS.find(x => x.id === s.group);
+    $("sportHead").innerHTML = `<div class="sh-glyph">${glyph(s.glyph, 64)}</div><div><div class="sh-path">${esc(g.parent)}　${esc(g.name)}</div><h2 class="big" style="margin:4px 0">${esc(s.name)}</h2><p class="lead" style="margin:0">${esc(g.desc)}</p></div>`;
+    $("sportBody").innerHTML = s.techniques.map(t => `<article class="tech">
+      <h3>${esc(t.name)}</h3>
+      <div class="phases-seq">${t.phases.map((p, i) => `<span><i>${i + 1}</i>${esc(p)}</span>`).join("")}</div>
+      <h4>关键技术点</h4><ul class="kp">${t.keyPoints.map(k => `<li>${esc(k)}</li>`).join("")}</ul>
+      <h4>常见错误</h4>${t.errors.map(er => `<details class="errd"><summary>${esc(er.error)}</summary>${errorRows(er)}</details>`).join("")}
+      <button class="btn go" data-t="${t.id}" style="width:100%;margin-top:14px">分析这个技术的视频</button></article>`).join("") +
+      `<p class="lead" style="font-size:13px;margin-top:14px">技术库按项群训练理论组织，内容为教练经验与教材共识，个别数值为经验参考，请结合老师意见使用。</p>`;
+    $("sportBody").querySelectorAll("button[data-t]").forEach(b => b.onclick = () => {
+      const t = SPORTLIB.tech(id, b.dataset.t);
+      startNew(t.mode === "general" ? "general" : t.mode, { sportId: id, techId: t.id });
+    });
+    show("sport");
+  }
+  // 结果页：技术要点检查（教练逐条判断）+ 常见错误对照
+  function renderChecklist() {
+    const box = $("checkBox");
+    const t = S.sportId && window.SPORTLIB ? SPORTLIB.tech(S.sportId, S.techId) : null;
+    if (!t) { box.innerHTML = ""; return; }
+    S.checks = S.checks || {};
+    const opts = [["ok", "达标"], ["fix", "待改进"]];
+    box.innerHTML = `<h3 class="sec">技术要点检查</h3><p class="lead" style="margin-top:-4px">一边逐帧回放，一边逐条判断。结果会随记录保存。</p>
+      <div class="checks">${t.keyPoints.map((k, i) => `<div class="ck"><p>${esc(k)}</p><div class="verdict">${opts.map(([v, l]) => `<button data-i="${i}" data-v="${v}" aria-pressed="${S.checks[i] === v}">${l}</button>`).join("")}</div></div>`).join("")}</div>
+      <h3 class="sec">常见错误对照</h3>${t.errors.map(er => `<details class="errd"><summary>${esc(er.error)}</summary>${errorRows(er)}</details>`).join("")}`;
+    box.querySelectorAll(".ck button").forEach(b => b.onclick = () => { const i = b.dataset.i; S.checks[i] = S.checks[i] === b.dataset.v ? "" : b.dataset.v; renderChecklist(); });
+  }
+
   // ---------------- 封面 ----------------
   const HERO = {
     sprint: { title: "短跑", line: "看清 0.1 秒里的每一次触地", go: "分析一段短跑视频", action: "sprint" },
@@ -1330,8 +1433,22 @@
   $("heroGo").onclick = () => startNew($("heroGo").dataset.action);
   setWorld(localStorage.getItem("cm_world") || "sprint");
 
+  // ---------------- 开场动画 ----------------
+  (function intro() {
+    const el = $("intro"); if (!el) return;
+    const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let seen = false; try { seen = sessionStorage.getItem("cm_intro") === "1"; sessionStorage.setItem("cm_intro", "1"); } catch (e) { /* 忽略 */ }
+    if (reduce || seen) { el.classList.add("done"); return; }
+    const t0 = performance.now(), tick = () => { const t = (performance.now() - t0) / 1000; $("introTime").textContent = Math.min(t, 1.95).toFixed(2); if (t < 1.95 && !el.classList.contains("done")) requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+    const end = () => el.classList.add("done");
+    el.addEventListener("click", end);
+    el.addEventListener("animationend", e => { if (e.animationName === "in-out") end(); });
+    setTimeout(end, 3200);
+  })();
+
   // ---------------- 启动 ----------------
-  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+  if (!window.CM_PREVIEW && "serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
   $("bar").hidden = true;
-  renderHome(); renderPeople(); renderModelState();
+  renderHome(); renderPeople(); renderSports(); renderModelState();
 })();

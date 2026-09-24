@@ -1,4 +1,4 @@
-/* 阈值与知识卡：由 coachmind_engine/config 与 knowledge 生成 */
+/* 阈值与知识卡：由 coachmind_engine/config 与 knowledge 生成，另加通用模式 */
 var CM_THRESHOLDS = {
  "_说明": "所有阈值均为初始值，需要用你们队员的真实数据和教练判断逐步校准。改这里即可，不用改代码。",
  "sprint": {
@@ -24,6 +24,16 @@ var CM_THRESHOLDS = {
   "hip_ext_incomplete_deg": 165,
   "bar_forward_excess_m": 0.1,
   "peak_bar_velocity_target_mps": null
+ },
+ "general": {
+  "filter_hz": 10,
+  "foot_filter_hz": 15,
+  "ground_percentile": 90,
+  "air_band_body_ratio": 0.03,
+  "min_flight_s": 0.08,
+  "touch_band_body_ratio": 0.006,
+  "stiff_landing_knee_deg": 150,
+  "shallow_countermove_knee_deg": 140
  }
 };
 var CM_CARDS = {
@@ -309,6 +319,79 @@ var CM_CARDS = {
    ],
    "evidence_level": "专家经验",
    "review_status": "待教练审核"
+  },
+  {
+   "id": "GN-01",
+   "action": "general",
+   "title": "落地缓冲不足",
+   "condition": {
+    "metric": "landing_knee_min_deg",
+    "op": ">",
+    "threshold": "stiff_landing_knee_deg"
+   },
+   "symptom": "落地后膝关节最小角度 {value}°，大于 {threshold}°，缓冲幅度小（落地僵硬）。",
+   "hypotheses": [
+    {
+     "id": "A",
+     "text": "下肢离心力量不足，无法吸收落地冲击",
+     "test": "离心深蹲、跳箱落地定型测试"
+    },
+    {
+     "id": "B",
+     "text": "落地技术习惯：膝关节锁直",
+     "test": "逐帧回看着地瞬间，并从正面拍摄观察膝内扣"
+    }
+   ],
+   "prescriptions": {
+    "A": "离心深蹲、跳下落地定型（逐步增加高度）",
+    "B": "落地技术练习：前脚掌着地、屈髋屈膝、膝对脚尖"
+   },
+   "evidence": [
+    {
+     "type": "专家经验",
+     "citation": "教练经验；落地僵硬常被视为下肢损伤风险因素之一",
+     "supports": "侧面只能看屈膝缓冲，膝内扣需正面拍摄"
+    }
+   ],
+   "evidence_level": "专家经验",
+   "safety_flag": true,
+   "review_status": "待教练审核"
+  },
+  {
+   "id": "GN-02",
+   "action": "general",
+   "title": "起跳前下蹲幅度小",
+   "condition": {
+    "metric": "knee_min_pre_deg",
+    "op": ">",
+    "threshold": "shallow_countermove_knee_deg"
+   },
+   "symptom": "起跳前最小膝角 {value}°，大于 {threshold}°。",
+   "hypotheses": [
+    {
+     "id": "A",
+     "text": "反应力量型起跳（快速短触地），属于技术风格，不一定是问题",
+     "test": "对比项目需要：排球扣球、跳远多为快速起跳"
+    },
+    {
+     "id": "B",
+     "text": "下肢力量不足，不敢深蹲发力",
+     "test": "对比深蹲跳与反向跳的高度差"
+    }
+   ],
+   "prescriptions": {
+    "A": "保持，结合专项判断",
+    "B": "力量训练 + 反向跳技术练习"
+   },
+   "evidence": [
+    {
+     "type": "专家经验",
+     "citation": "教练经验",
+     "supports": "需要结合项目判断"
+    }
+   ],
+   "evidence_level": "专家经验",
+   "review_status": "待教练审核"
   }
  ]
 };
@@ -533,6 +616,62 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     return r;
   }
 
+
+  // ---------- 通用动作分析：骨骼 + 关节角度 + 跳跃检测 ----------
+  // 跳跃高度 = g·t²/8（腾空时间法，要求起跳和落地姿势相近；机位必须固定）
+  function analyzeGeneral(pose, fs, TH) {
+    const c = TH.general, n = pose.length;
+    const fixed = unswapLegs(pose), P = fixed.pose;
+    const vis = s => mean(P.map(f => f ? (f[SIDES[s].hip][2] + f[SIDES[s].knee][2] + f[SIDES[s].elbow][2]) / 3 : NaN));
+    const side = (isF(vis("left")) ? vis("left") : -1) >= (isF(vis("right")) ? vis("right") : -1) ? "left" : "right";
+    const S = SIDES[side];
+    const J = k => { const p = pt(P, S[k]); return [lowpass(p.map(q => q[0]), fs, c.filter_hz), lowpass(p.map(q => q[1]), fs, c.filter_hz)]; };
+    const sh = J("shoulder"), hp = J("hip"), kn = J("knee"), an = J("ankle"), el = J("elbow"), wr = J("wrist");
+    const at = (A, i) => [A[0][i], A[1][i]];
+    const knee = [], hip = [], elbow = [], shoulder = [], trunk = [];
+    for (let i = 0; i < n; i++) {
+      knee.push(angle(at(hp, i), at(kn, i), at(an, i)));
+      hip.push(angle(at(sh, i), at(hp, i), at(kn, i)));
+      elbow.push(angle(at(sh, i), at(el, i), at(wr, i)));
+      shoulder.push(angle(at(hp, i), at(sh, i), at(el, i)));
+      trunk.push(Math.abs(Math.atan2(sh[0][i] - hp[0][i], hp[1][i] - sh[1][i]) * 180 / Math.PI));
+    }
+    // 最低的脚（图像 y 最大）
+    const footIdx = [27, 28, 29, 30, 31, 32];
+    const low = lowpass(P.map(f => f ? Math.max(...footIdx.map(j => f[j][1]).filter(isF)) : NaN), fs, c.foot_filter_hz);
+    const bodyH = median(P.map(f => f ? Math.max(...footIdx.map(j => f[j][1]).filter(isF)) - f[0][1] : NaN));
+    const ground = percentile(low, c.ground_percentile);
+    const band = c.air_band_body_ratio * bodyH;
+    const air = low.map(y => isF(y) && y < ground - band);
+    const minAir = Math.max(2, Math.round(c.min_flight_s * fs));
+    const jumps = [];
+    const fine = c.touch_band_body_ratio * bodyH;                      // 精修：脚离开地面几像素即算离地
+    for (let [s0, s1] of segments(air, minAir, Math.round(0.01 * fs))) {
+      while (s0 > 0 && isF(low[s0 - 1]) && low[s0 - 1] < ground - fine) s0--;
+      while (s1 < n - 1 && isF(low[s1 + 1]) && low[s1 + 1] < ground - fine) s1++;
+      if (s0 === 0 || s1 === n - 1) continue;                        // 起跳或落地被截断
+      const t = (s1 - s0 + 1) / fs;
+      const pre = knee.slice(Math.max(0, s0 - Math.round(0.6 * fs)), s0).filter(isF);
+      const post = knee.slice(s1 + 1, Math.min(n, s1 + 1 + Math.round(0.35 * fs))).filter(isF);
+      const armPeak = Math.max(...shoulder.slice(s0, s1 + 1).filter(isF));
+      jumps.push({ takeoff: s0, landing: s1 + 1, flight_s: r3(t), height_cm: r1(9.81 * t * t / 8 * 100),
+        knee_min_pre_deg: pre.length ? r1(Math.min(...pre)) : null, knee_takeoff_deg: r1(knee[s0 - 1]),
+        knee_landing_min_deg: post.length ? r1(Math.min(...post)) : null, arm_peak_deg: isF(armPeak) ? r1(armPeak) : null });
+    }
+    const best = jumps.slice().sort((a, b) => b.height_cm - a.height_cm)[0];
+    const fmin = a => { const v = a.filter(isF); return v.length ? r1(Math.min(...v)) : null; };
+    const fmax = a => { const v = a.filter(isF); return v.length ? r1(Math.max(...v)) : null; };
+    const summary = {};
+    if (best) Object.assign(summary, { jump_height_cm: best.height_cm, flight_time_s: best.flight_s, knee_min_pre_deg: best.knee_min_pre_deg,
+      knee_takeoff_deg: best.knee_takeoff_deg, landing_knee_min_deg: best.knee_landing_min_deg, arm_peak_deg: best.arm_peak_deg });
+    Object.assign(summary, { n_jumps: jumps.length, knee_min_deg: fmin(knee), hip_min_deg: fmin(hip), elbow_min_deg: fmin(elbow), trunk_lean_max_deg: fmax(trunk), side_analyzed: side === "left" ? "左" : "右" });
+    const notes = [];
+    if (!jumps.length) notes.push("没有检测到腾空。如果动作里有起跳，请确认机位固定、双脚在画面内。");
+    if (jumps.length) notes.push("跳跃高度按腾空时间计算（g·t²/8），要求起跳和落地时身体姿势相近；落地时屈膝更多会让结果偏高。");
+    return { action: "general", fps: fs, summary, notes, jumps, legSwaps: fixed.swaps, pose: P,
+      series: { knee, hip, elbow, shoulder, trunk, air } };
+  }
+
   // ---------- 高翻：杠铃片模板跟踪（归一化互相关） ----------
   class PlateTracker {
     // gray: Uint8Array（宽 w 高 h）；cx,cy,r 为同一坐标系像素
@@ -666,17 +805,20 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     hip_angle_at_peak_velocity_deg: ["最大速度时髋角", "°"], knee_angle_at_liftoff_deg: ["离地时膝角", "°"],
     knee_angle_at_catch_deg: ["接杠时膝角", "°"], min_elbow_angle_first_pull_deg: ["第一次拉最小肘角", "°"],
     hip_ext_to_peak_velocity_ms: ["最大伸髋相对杠铃峰速", "ms"], side_analyzed: ["分析侧", ""],
+    jump_height_cm: ["跳跃高度", "cm"], flight_time_s: ["腾空时间", "s"], knee_min_pre_deg: ["起跳前最小膝角", "°"], knee_takeoff_deg: ["离地时膝角", "°"],
+    landing_knee_min_deg: ["落地缓冲最小膝角", "°"], arm_peak_deg: ["腾空中手臂最大上举", "°"], n_jumps: ["检测到跳跃", "次"],
+    knee_min_deg: ["全程最小膝角", "°"], hip_min_deg: ["全程最小髋角", "°"], elbow_min_deg: ["全程最小肘角", "°"], trunk_lean_max_deg: ["躯干最大倾斜", "°"],
   };
   function fmt(v, unit) {
     if (typeof v !== "number") return String(v);
     if (Number.isInteger(v)) return String(v);
-    return unit === "°" || unit === "%" || unit === "ms" ? v.toFixed(1) : unit === "s" ? v.toFixed(3) : v.toFixed(2);
+    return unit === "°" || unit === "%" || unit === "ms" || unit === "cm" ? v.toFixed(1) : unit === "s" ? v.toFixed(3) : v.toFixed(2);
   }
 
   function r1(v) { return Math.round(v * 10) / 10; } function r2(v) { return Math.round(v * 100) / 100; }
   function r3(v) { return Math.round(v * 1000) / 1000; } function r4(v) { return Math.round(v * 10000) / 10000; }
 
   const API = { median, percentile, lowpass, derivative, angle, segments, fillNaN, SIDES, SKELETON,
-    analyzeSprint, sprintFromContacts, sprintBase, unswapLegs, analyzeClean, PlateTracker, matchCards, LABELS, fmt, PLATE_DIAMETER_M: 0.45 };
+    analyzeSprint, analyzeGeneral, sprintFromContacts, sprintBase, unswapLegs, analyzeClean, PlateTracker, matchCards, LABELS, fmt, PLATE_DIAMETER_M: 0.45 };
   if (typeof module !== "undefined" && module.exports) module.exports = API; else root.CM = API;
 })(typeof self !== "undefined" ? self : this);
