@@ -391,9 +391,9 @@
         const buf = await withTimeout(r.arrayBuffer(), 120000, "下载");
         if (buf.byteLength < MODEL_MIN_BYTES) { loadLog.push(`模型　${m.name}：文件只有 ${buf.byteLength < 1024 ? buf.byteLength + " 字节" : Math.round(buf.byteLength / 1024) + " KB"}，不完整${buf.byteLength < 1000 ? "。这是 Git LFS 占位文件，GitHub Pages 不提供真实文件" : ""}`); continue; }
         if (!isZip(buf)) { loadLog.push(`模型　${m.name}：文件头不像 .task 模型（${(buf.byteLength / 1e6).toFixed(1)} MB），仍然尝试使用`); }
-        buf = normalizeTask(buf);
-        await dbPut("files", { id: "pose_model", bytes: buf, from: m.name, saved: new Date().toISOString() });
-        return buf;
+        const bytes = normalizeTask(buf);
+        await dbPut("files", { id: "pose_model", bytes, from: m.name, saved: new Date().toISOString() });
+        return bytes;
       } catch (e) { loadLog.push(`模型　${m.name}：连不上${m.name === "Google" ? "（国内网络通常访问不了）" : ""}（${errText(e)}）`); }
     }
     throw stageErr("model");
