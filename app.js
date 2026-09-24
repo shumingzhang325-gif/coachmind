@@ -367,41 +367,62 @@
   const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + "超时")), ms))]);
   const stageErr = stage => Object.assign(new Error(stage), { stage });
   const MODEL_MIN_BYTES = 1_000_000;
-  const isZip = buf => { const b = new Uint8Array(buf, 0, Math.min(4, buf.byteLength || 0)); return (b[0] === 0x50 && b[1] === 0x4B) || (b.length >= 4 && b[0] === 0 && b[1] === 0 && b[2] === 0x50 && b[3] === 0x4B); };
-  // 曾误删官方文件头 00 00 得到 9398196 字节坏包；该尺寸一律视为损坏。
-  const BAD_MODEL_SIZES = new Set([9398196]);
-  const isUsableTask = buf => isZip(buf) && buf.byteLength > MODEL_MIN_BYTES && !BAD_MODEL_SIZES.has(buf.byteLength);
-  const normalizeTask = buf => buf;
+  const isZip = buf => { const b = new Uint8Array(buf, 0, 4); return b[0] === 0x50 && b[1] === 0x4B; };
 
-  // 第 2 步：拿到模型文件（本机已保存 → 你的网站 → Google），成功后存进本机
-  async function getModelBytes(onStatus) {
+  // 检查 .task（ZIP）结构是否完整：末尾目录记录、中央目录、里面有没有 .tflite
+  function zipCheck(buf) {
+    const u = new Uint8Array(buf), n = u.length;
+    if (n < 22) return { ok: false, reason: "文件太小" };
+    const dv = new DataView(buf.buffer, buf.byteOffset || 0, n);
+    let base = 0;
+    // 官方包以 00 00 PK 开头（本地头偏移=2）；干净重打包以 PK 开头
+    if (u[0] === 0 && u[1] === 0 && u[2] === 0x50 && u[3] === 0x4B) base = 2;
+    if (!(u[base] === 0x50 && u[base + 1] === 0x4B && u[base + 2] === 0x03 && u[base + 3] === 0x04))
+      return { ok: false, reason: "开头不是 ZIP 文件头" };
+    let e = -1;
+    for (let i = n - 22; i >= Math.max(0, n - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    if (e < 0) return { ok: false, reason: "找不到 ZIP 结尾目录，文件被截断或损坏" };
+    const count = dv.getUint16(e + 10, true), cdSize = dv.getUint32(e + 12, true), cdOff = dv.getUint32(e + 16, true);
+    if (cdOff + cdSize > e) return { ok: false, reason: "ZIP 目录位置对不上，文件内容被改动过（常见于换行符转换）" };
+    const names = [];
+    let p = cdOff;
+    for (let k = 0; k < count; k++) {
+      if (p + 46 > n || dv.getUint32(p, true) !== 0x02014b50) return { ok: false, reason: "ZIP 目录记录损坏" };
+      const nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
+      const lho = dv.getUint32(p + 42, true);
+      if (lho + 4 > n || dv.getUint32(lho, true) !== 0x04034b50) return { ok: false, reason: "ZIP 内文件位置错乱，文件内容被改动过" };
+      names.push(new TextDecoder().decode(u.slice(p + 46, p + 46 + nl)));
+      p += 46 + nl + xl + cl;
+    }
+    if (!names.some(s => s.endsWith(".tflite"))) return { ok: false, reason: "ZIP 里没有模型（.tflite）" };
+    // 曾误删官方文件头得到的坏包尺寸
+    if (n === 9398196) return { ok: false, reason: "已知损坏的截断模型（9398196 字节）" };
+    return { ok: true, names, bytes: n, head: [...u.slice(0, 4)].map(x => x.toString(16).padStart(2, "0")).join(" ") };
+  }
+
+  // 模型候选：本机保存 → 你的网站 → Google。每个都先检查 ZIP 结构，坏的跳过
+  async function* modelCandidates(onStatus) {
     try {
-      const rec = await dbGet("files", "pose_model_v5");
-      if (rec && rec.bytes && rec.bytes.byteLength > MODEL_MIN_BYTES) {
-        if (isUsableTask(rec.bytes)) {
-          loadLog.push(`模型　本机缓存 ${ (rec.bytes.byteLength/1e6).toFixed(2) } MB（${rec.from||"未知"}）`);
-          return normalizeTask(rec.bytes);
-        }
-        loadLog.push(`模型　本机保存的文件已损坏（${rec.bytes.byteLength} 字节），已删除`); await dbDel("files", "pose_model_v5");
+      const rec = await dbGet("files", "pose_model_v7");
+      if (rec && rec.bytes) {
+        const z = zipCheck(rec.bytes);
+        if (z.ok) yield { bytes: rec.bytes, from: "本机保存（" + (rec.from || "") + "）", cached: true };
+        else { loadLog.push(`模型　本机保存的文件：${z.reason}，已删除`); await dbDel("files", "pose_model_v7"); }
       }
     } catch (e) { /* 继续 */ }
     for (const m of MODEL_SOURCES) {
       onStatus && onStatus(`正在下载姿态模型（${m.name}）`);
+      let buf;
       try {
         const r = await withTimeout(fetch(m.url, { cache: "no-store" }), 90000, "下载");
         if (!r.ok) { loadLog.push(`模型　${m.name}：${r.status === 404 ? "找不到这个文件（404），仓库里没有它" : "服务器返回错误 " + r.status}`); continue; }
-        const buf = await withTimeout(r.arrayBuffer(), 120000, "下载");
-        if (buf.byteLength < MODEL_MIN_BYTES) { loadLog.push(`模型　${m.name}：文件只有 ${buf.byteLength < 1024 ? buf.byteLength + " 字节" : Math.round(buf.byteLength / 1024) + " KB"}，不完整${buf.byteLength < 1000 ? "。这是 Git LFS 占位文件，GitHub Pages 不提供真实文件" : ""}`); continue; }
-        if (!isZip(buf)) { loadLog.push(`模型　${m.name}：文件头不像 .task 模型（${(buf.byteLength / 1e6).toFixed(1)} MB），仍然尝试使用`); }
-        const bytes = normalizeTask(buf);
-        if (!isUsableTask(bytes)) { loadLog.push(`模型　${m.name}：文件不可用（${bytes.byteLength} 字节），跳过`); continue; }
-        const head = [...new Uint8Array(bytes, 0, 4)].map(x => x.toString(16).padStart(2,"0")).join(" ");
-        loadLog.push(`模型　${m.name}：已下载 ${ (bytes.byteLength/1e6).toFixed(2) } MB，文件头 ${head}`);
-        await dbPut("files", { id: "pose_model_v5", bytes, from: m.name, saved: new Date().toISOString() });
-        return bytes;
-      } catch (e) { loadLog.push(`模型　${m.name}：连不上${m.name === "Google" ? "（国内网络通常访问不了）" : ""}（${errText(e)}）`); }
+        buf = await withTimeout(r.arrayBuffer(), 120000, "下载");
+      } catch (e) { loadLog.push(`模型　${m.name}：连不上${m.name === "Google" ? "（国内网络通常访问不了）" : ""}（${errText(e)}）`); continue; }
+      if (buf.byteLength < 1000 && new TextDecoder().decode(new Uint8Array(buf, 0, 7)) === "version") { loadLog.push(`模型　${m.name}：这是 Git LFS 占位文件（${buf.byteLength} 字节），GitHub Pages 不提供真实文件`); continue; }
+      const z = zipCheck(buf);
+      if (!z.ok) { loadLog.push(`模型　${m.name}：文件已损坏（${z.reason}，${(buf.byteLength / 1e6).toFixed(2)} MB）`); continue; }
+      yield { bytes: buf, from: m.name, cached: false };
     }
-    throw stageErr("model");
   }
 
   const errText = e => (e && (e.message || e.type || (typeof e === "string" ? e : ""))) || (() => { try { return JSON.stringify(e); } catch (x) { return String(e); } })();
@@ -410,13 +431,23 @@
     if (landmarkerP) return landmarkerP;
     loadLog = [];
     landmarkerP = (async () => {
-      const bytes = await getModelBytes(onStatus);
-      // 运算库和运行环境必须是同一个版本：先逐个来源“成对”尝试，全部失败再交叉组合
-      const libs = [];
-      const tryStart = async (L, w) => {
+      const libs = [];                       // 已加载的运算库（按来源）
+      let libTried = 0;
+      async function nextLib() {
+        while (libTried < LIB_SOURCES.length) {
+          const c = LIB_SOURCES[libTried++];
+          onStatus && onStatus(`正在加载运算库（${c.name}）`);
+          try { const L = { src: c, lib: await withTimeout(import(c.bundle), 20000, "下载") }; libs.push(L); return L; }
+          catch (e) { loadLog.push(`运算库　${c.name}：${errText(e)}`); }
+        }
+        return null;
+      }
+      const isModelErr = t => /zip archive|model asset|flatbuffer|Invalid model|tflite/i.test(t);
+      async function tryStart(L, w, bytes) {
         let fileset;
         try { fileset = await withTimeout(L.lib.FilesetResolver.forVisionTasks(w.wasm), 15000, "准备"); }
         catch (e) { fileset = { wasmLoaderPath: `${w.wasm}/vision_wasm_internal.js`, wasmBinaryPath: `${w.wasm}/vision_wasm_internal.wasm` }; }
+        let modelBad = false;
         for (const delegate of ["GPU", "CPU"]) {
           onStatus && onStatus(`正在启动识别（${w.name}${delegate === "CPU" ? "，兼容模式" : ""}）`);
           try {
@@ -425,27 +456,41 @@
               minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
             }), 60000, "启动");
             loadLog.push(`成功：运算库 ${L.src.name} + 运行环境 ${w.name} + ${delegate}`);
-            return lm;
-          } catch (e) { loadLog.push(`运行环境　库:${L.src.name}　环境:${w.name}　${delegate}：${errText(e)}`); }
+            return { lm };
+          } catch (e) {
+            const t = errText(e).split("=== Source Location")[0].trim();
+            loadLog.push(`运行环境　库:${L.src.name}　环境:${w.name}　${delegate}：${t}`);
+            if (isModelErr(t)) { modelBad = true; break; }   // 模型本身坏了，换运行环境也没用
+          }
         }
-        return null;
-      };
-      for (const c of LIB_SOURCES) {
-        onStatus && onStatus(`正在加载运算库（${c.name}）`);
-        let lib;
-        try { lib = await withTimeout(import(c.bundle), 20000, "下载"); }
-        catch (e) { loadLog.push(`运算库　${c.name}：${errText(e)}`); continue; }
-        const L = { src: c, lib };
-        libs.push(L);
-        const lm = await tryStart(L, c);
-        if (lm) return lm;
+        return { modelBad };
       }
-      if (!libs.length) throw stageErr("lib");
-      for (const L of libs) for (const w of LIB_SOURCES) {
-        if (w === L.src) continue;
-        const lm = await tryStart(L, w);
-        if (lm) return lm;
+
+      let gotModel = false, runtimeOnly = true;
+      for await (const M of modelCandidates(onStatus)) {
+        gotModel = true;
+        let modelBad = false;
+        // 先用已加载的库 + 同源运行环境；没有就加载下一个库
+        const pairs = async function* () {
+          for (const L of libs) yield [L, L.src];
+          let L; while ((L = await nextLib())) yield [L, L.src];
+          for (const L2 of libs) for (const w of LIB_SOURCES) if (w !== L2.src) yield [L2, w];
+        };
+        for await (const [L, w] of pairs()) {
+          const r = await tryStart(L, w, M.bytes);
+          if (r.lm) {
+            if (!M.cached) { try { await dbPut("files", { id: "pose_model_v7", bytes: M.bytes, from: M.from, saved: new Date().toISOString() }); } catch (e) { /* 忽略 */ } }
+            return r.lm;
+          }
+          if (r.modelBad) { modelBad = true; break; }
+        }
+        if (!modelBad) { runtimeOnly = true; break; }            // 模型没问题，是运行环境的问题
+        loadLog.push(`模型　${M.from}：识别程序打不开这个模型文件，换下一个来源`);
+        if (M.cached) { try { await dbDel("files", "pose_model_v7"); } catch (e) { /* 忽略 */ } }
+        runtimeOnly = false;
       }
+      if (!libs.length && libTried >= LIB_SOURCES.length) throw stageErr("lib");
+      if (!gotModel || !runtimeOnly) throw stageErr("model");
       throw stageErr("runtime");
     })();
     landmarkerP.catch(() => { landmarkerP = null; });
@@ -480,10 +525,14 @@
     await check("vision_bundle.mjs", 50000);
     await check("vision_wasm_internal.js", 50000);
     await check("vision_wasm_internal.wasm", 1000000, b => b[0] === 0 && b[1] === 0x61 && b[2] === 0x73 && b[3] === 0x6d);
-    await check("pose_landmarker_full.task", 1000000, b => (b[0] === 0x50 && b[1] === 0x4B) || (b[0] === 0 && b[1] === 0 && b[2] === 0x50 && b[3] === 0x4B));
     try {
-      const rec = await dbGet("files", "pose_model_v5");
-      if (rec && rec.bytes) ok("本机保存的模型", isZip(rec.bytes), `${(rec.bytes.byteLength / 1e6).toFixed(2)} MB，来自${rec.from}${isZip(rec.bytes) ? "" : "，文件头不对，已损坏"}`);
+      const r = await withTimeout(fetch(new URL("pose_landmarker_full.task", location.href).href, { cache: "no-store" }), 30000, "下载");
+      if (!r.ok) ok("pose_landmarker_full.task", false, r.status === 404 ? "仓库里没有这个文件（404）" : `服务器返回 ${r.status}`);
+      else { const buf = await r.arrayBuffer(), z = zipCheck(buf); ok("pose_landmarker_full.task", z.ok, z.ok ? `${(buf.byteLength / 1e6).toFixed(2)} MB，结构完整` : `${(buf.byteLength / 1e6).toFixed(2)} MB，${z.reason}`); }
+    } catch (e) { ok("pose_landmarker_full.task", false, `读取失败：${errText(e)}`); }
+    try {
+      const rec = await dbGet("files", "pose_model_v7");
+      if (rec && rec.bytes) { const z = zipCheck(rec.bytes); ok("本机保存的模型", z.ok, `${(rec.bytes.byteLength / 1e6).toFixed(2)} MB，来自${rec.from}${z.ok ? "" : "，" + z.reason}`); }
       else ok("本机保存的模型", true, "还没有");
     } catch (e) { /* 忽略 */ }
     return rows;
@@ -492,7 +541,7 @@
     return `<p style="margin:14px 0 6px;font-weight:600">识别环境自检</p><table class="cmp">${rows.map(r => `<tr><td style="width:40%">${esc(r.name)}</td><td style="text-align:left;font-family:var(--font);font-size:13px;color:${r.good ? "var(--muted)" : "var(--red)"}">${r.good ? "✓ " : "✗ "}${esc(r.detail)}</td></tr>`).join("")}</table>`;
   }
   async function clearCachesAndRetry() {
-    try { await dbDel("files", "pose_model_v5"); } catch (e) { /* 忽略 */ }
+    try { await dbDel("files", "pose_model_v7"); } catch (e) { /* 忽略 */ }
     try { for (const k of await caches.keys()) await caches.delete(k); } catch (e) { /* 忽略 */ }
     landmarkerP = null;
     toast("已清除缓存，重新下载");
@@ -504,8 +553,9 @@
     if (!file) return false;
     const buf = await file.arrayBuffer();
     if (buf.byteLength < MODEL_MIN_BYTES) { toast("这个文件太小，不是姿态模型"); return false; }
-    if (!isZip(buf) && !confirm("这个文件看起来不像姿态模型（pose_landmarker_full.task）。仍然导入吗？")) return false;
-    await dbPut("files", { id: "pose_model_v5", bytes: buf, from: "手动导入", saved: new Date().toISOString() });
+    const z = zipCheck(buf);
+    if (!z.ok) { toast(`这个文件不能用：${z.reason}`); return false; }
+    await dbPut("files", { id: "pose_model_v7", bytes: buf, from: "手动导入", saved: new Date().toISOString() });
     landmarkerP = null;
     toast(`模型已保存到本机（${(buf.byteLength / 1e6).toFixed(1)} MB）`);
     renderModelState();
@@ -513,7 +563,7 @@
   }
   async function renderModelState() {
     try {
-      const rec = await dbGet("files", "pose_model_v5");
+      const rec = await dbGet("files", "pose_model_v7");
       $("modelState").innerHTML = rec && rec.bytes ? `<b>已保存在本机</b>　${(rec.bytes.byteLength / 1e6).toFixed(1)} MB，来自${esc(rec.from || "")}` : "还没有保存。第一次分析时会自动下载";
     } catch (e) { $("modelState").textContent = "无法读取"; }
   }
@@ -548,7 +598,7 @@
         lib: `<h3>运算库没有加载成功</h3><p>App 从你的网站和几个镜像都没拿到运算库文件。</p>
           <ol><li>确认 GitHub 仓库里有 vision_bundle.mjs、vision_wasm_internal.js、vision_wasm_internal.wasm 三个文件（由“下载离线文件.bat”下载）</li><li>或者打开能访问国外网站的网络后点“重试”</li></ol>`,
         model: `<h3>没拿到姿态模型文件</h3>
-          <p>识别需要模型文件 pose_landmarker_full.task（约 9 MB），App 试了这些地方都没拿到：</p>
+          <p>识别需要模型文件 pose_landmarker_full.task（约 9 MB），App 试了这些地方都没拿到能用的：</p>
           <ul style="margin:6px 0 10px;padding-left:18px">${loadLog.filter(l => l.startsWith("模型")).map(l => `<li style="margin:4px 0">${esc(l.replace(/^模型　/, ""))}</li>`).join("")}</ul>
           <p style="font-weight:600;margin:12px 0 4px">解决办法（任选一个）</p>
           <ol><li><b>最快：</b>在能访问国外网站的网络下，用 Safari 打开首页“姿态识别模型”里的地址，下载到“文件”App，然后点下面的“从文件导入模型”</li>
