@@ -3,6 +3,9 @@
   "use strict";
   const $ = id => document.getElementById(id);
   const TH = CM_THRESHOLDS, CARDS = CM_CARDS;
+  // 识别运行时（由 Emscripten 编译）会调用全局函数 dbg() 输出调试信息。
+  // 页面里任何 id="dbg" 的元素都会被浏览器当成全局变量 dbg，导致运行时崩溃；这里提前放一个真正的函数。
+  for (const name of ["dbg"]) if (typeof window[name] !== "function") window[name] = (...args) => { try { console.debug("[识别运行时]", ...args); } catch (e) { /* 忽略 */ } };
   const MP_VERSION = "0.10.14";
   // 运算库来源：先用你自己网站上的文件，再依次尝试国内镜像和国外 CDN
   const LIB_SOURCES = [
@@ -1301,7 +1304,7 @@
         <line x1="0" x2="${W}" y1="${y(thr)}" y2="${y(thr)}" stroke="var(--red)" stroke-dasharray="5 4"/><text x="4" y="${H - 2}" font-size="13" fill="var(--muted)">${label}</text></svg>`;
     };
     const L = R.debug.left;
-    $("dbg").innerHTML = panel("ty", (v, d) => d.groundY - v, L.groundY - L.nearY, "脚尖离地高度（像素），虚线以下才可能是触地") +
+    $("debugPlot").innerHTML = panel("ty", (v, d) => d.groundY - v, L.groundY - L.nearY, "脚尖离地高度（像素），虚线以下才可能是触地") +
       panel("vx", (v, d) => v / (d.slowV / TH.sprint.stance_speed_ratio), TH.sprint.stance_speed_ratio, "脚尖水平速度 ÷ 跑速，虚线以下才可能是触地") +
       `<p>绿线左脚，深色线右脚；色块是识别到的触地。左右腿标签互换纠正 ${R.legSwaps || 0} 次。触地要求“足够低”和“几乎不动”同时满足。如果两条曲线从没同时落到虚线以下，常见原因：机位在动、人物太小或被遮挡、跑速太慢。截图这里发给开发者可以帮助排查。</p>`;
   }
