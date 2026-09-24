@@ -1,0 +1,11 @@
+{
+  "name": "CoachMind PWA",
+  "install": "for f in index.html app.js engine.js coach.js manifest.webmanifest sw.js pose_landmarker_full.task vision_bundle.mjs vision_wasm_internal.js vision_wasm_internal.wasm mp4box.all.min.js; do test -f \"$f\" || { echo \"missing required asset: $f\"; exit 1; }; done; echo 'CoachMind static assets verified'",
+  "terminals": [
+    {
+      "name": "web",
+      "command": "python3 -m http.server 8000 --bind 0.0.0.0"
+    }
+  ],
+  "ports": [8000]
+}
