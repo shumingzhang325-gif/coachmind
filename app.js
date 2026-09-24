@@ -367,14 +367,19 @@
   const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + "超时")), ms))]);
   const stageErr = stage => Object.assign(new Error(stage), { stage });
   const MODEL_MIN_BYTES = 1_000_000;
-  const isZip = buf => { const b = new Uint8Array(buf, 0, 4); return b[0] === 0x50 && b[1] === 0x4B; };
+  const isZip = buf => { const b = new Uint8Array(buf, 0, Math.min(4, buf.byteLength || 0)); return (b[0] === 0x50 && b[1] === 0x4B) || (b.length >= 4 && b[0] === 0 && b[1] === 0 && b[2] === 0x50 && b[3] === 0x4B); };
+  const normalizeTask = buf => {
+    const b = new Uint8Array(buf, 0, Math.min(4, buf.byteLength || 0));
+    if (b.length >= 4 && b[0] === 0 && b[1] === 0 && b[2] === 0x50 && b[3] === 0x4B) return buf.slice(2);
+    return buf;
+  };
 
   // 第 2 步：拿到模型文件（本机已保存 → 你的网站 → Google），成功后存进本机
   async function getModelBytes(onStatus) {
     try {
       const rec = await dbGet("files", "pose_model");
       if (rec && rec.bytes && rec.bytes.byteLength > MODEL_MIN_BYTES) {
-        if (new Uint8Array(rec.bytes, 0, 2)[0] === 0x50) return rec.bytes;
+        if (isZip(rec.bytes)) return normalizeTask(rec.bytes);
         loadLog.push("模型　本机保存的文件已损坏，已删除"); await dbDel("files", "pose_model");
       }
     } catch (e) { /* 继续 */ }
@@ -385,7 +390,8 @@
         if (!r.ok) { loadLog.push(`模型　${m.name}：${r.status === 404 ? "找不到这个文件（404），仓库里没有它" : "服务器返回错误 " + r.status}`); continue; }
         const buf = await withTimeout(r.arrayBuffer(), 120000, "下载");
         if (buf.byteLength < MODEL_MIN_BYTES) { loadLog.push(`模型　${m.name}：文件只有 ${buf.byteLength < 1024 ? buf.byteLength + " 字节" : Math.round(buf.byteLength / 1024) + " KB"}，不完整${buf.byteLength < 1000 ? "。这是 Git LFS 占位文件，GitHub Pages 不提供真实文件" : ""}`); continue; }
-        if (!isZip(buf)) { loadLog.push(`模型　${m.name}：文件头不像 .task 模型（${(buf.byteLength / 1e6).toFixed(1)} MB），仍然尝试使用`); return buf; }
+        if (!isZip(buf)) { loadLog.push(`模型　${m.name}：文件头不像 .task 模型（${(buf.byteLength / 1e6).toFixed(1)} MB），仍然尝试使用`); }
+        buf = normalizeTask(buf);
         await dbPut("files", { id: "pose_model", bytes: buf, from: m.name, saved: new Date().toISOString() });
         return buf;
       } catch (e) { loadLog.push(`模型　${m.name}：连不上${m.name === "Google" ? "（国内网络通常访问不了）" : ""}（${errText(e)}）`); }
@@ -469,7 +475,7 @@
     await check("vision_bundle.mjs", 50000);
     await check("vision_wasm_internal.js", 50000);
     await check("vision_wasm_internal.wasm", 1000000, b => b[0] === 0 && b[1] === 0x61 && b[2] === 0x73 && b[3] === 0x6d);
-    await check("pose_landmarker_full.task", 1000000, b => b[0] === 0x50 && b[1] === 0x4B);
+    await check("pose_landmarker_full.task", 1000000, b => (b[0] === 0x50 && b[1] === 0x4B) || (b[0] === 0 && b[1] === 0 && b[2] === 0x50 && b[3] === 0x4B));
     try {
       const rec = await dbGet("files", "pose_model");
       if (rec && rec.bytes) ok("本机保存的模型", isZip(rec.bytes), `${(rec.bytes.byteLength / 1e6).toFixed(2)} MB，来自${rec.from}${isZip(rec.bytes) ? "" : "，文件头不对，已损坏"}`);
