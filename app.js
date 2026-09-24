@@ -13,7 +13,7 @@
     { name: "unpkg", bundle: `https://unpkg.com/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`, wasm: `https://unpkg.com/@mediapipe/tasks-vision@${MP_VERSION}/wasm` },
   ];
   const MODEL_SOURCES = [
-    { name: "本站文件", url: new URL("pose_landmarker_full.task", location.href).href },
+    { name: "你的网站", url: new URL("pose_landmarker_full.task", location.href).href },
     { name: "Google", url: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task" },
   ];
   const MP4BOX_SOURCES = ["mp4box.all.min.js", "https://registry.npmmirror.com/mp4box/0.5.2/files/dist/mp4box.all.min.js", "https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js"];
@@ -367,6 +367,7 @@
   const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + "超时")), ms))]);
   const stageErr = stage => Object.assign(new Error(stage), { stage });
   const MODEL_MIN_BYTES = 1_000_000;
+  const isZip = buf => { const b = new Uint8Array(buf, 0, 4); return b[0] === 0x50 && b[1] === 0x4B; };
 
   // 第 2 步：拿到模型文件（本机已保存 → 你的网站 → Google），成功后存进本机
   async function getModelBytes(onStatus) {
@@ -381,19 +382,18 @@
       onStatus && onStatus(`正在下载姿态模型（${m.name}）`);
       try {
         const r = await withTimeout(fetch(m.url, { cache: "no-store" }), 90000, "下载");
-        if (!r.ok) { loadLog.push(`模型　${m.name}：${r.status === 404 ? "找不到文件（404）。说明这个文件还没有上传到仓库" : "服务器返回 " + r.status}`); continue; }
+        if (!r.ok) { loadLog.push(`模型　${m.name}：${r.status === 404 ? "找不到这个文件（404），仓库里没有它" : "服务器返回错误 " + r.status}`); continue; }
         const buf = await withTimeout(r.arrayBuffer(), 120000, "下载");
-        if (buf.byteLength < MODEL_MIN_BYTES) { loadLog.push(`模型　${m.name}：文件只有 ${Math.round(buf.byteLength / 1024)} KB，不完整${buf.byteLength < 1000 ? "（可能是 Git LFS 占位文件）" : ""}`); continue; }
-        if (new Uint8Array(buf, 0, 2)[0] !== 0x50) { loadLog.push(`模型　${m.name}：文件格式不对（不是 .task 模型）`); continue; }
+        if (buf.byteLength < MODEL_MIN_BYTES) { loadLog.push(`模型　${m.name}：文件只有 ${buf.byteLength < 1024 ? buf.byteLength + " 字节" : Math.round(buf.byteLength / 1024) + " KB"}，不完整${buf.byteLength < 1000 ? "。这是 Git LFS 占位文件，GitHub Pages 不提供真实文件" : ""}`); continue; }
+        if (!isZip(buf)) { loadLog.push(`模型　${m.name}：文件头不像 .task 模型（${(buf.byteLength / 1e6).toFixed(1)} MB），仍然尝试使用`); return buf; }
         await dbPut("files", { id: "pose_model", bytes: buf, from: m.name, saved: new Date().toISOString() });
         return buf;
-      } catch (e) { loadLog.push(`模型　${m.name}：连不上（${errText(e)}）`); }
+      } catch (e) { loadLog.push(`模型　${m.name}：连不上${m.name === "Google" ? "（国内网络通常访问不了）" : ""}（${errText(e)}）`); }
     }
     throw stageErr("model");
   }
 
   const errText = e => (e && (e.message || e.type || (typeof e === "string" ? e : ""))) || (() => { try { return JSON.stringify(e); } catch (x) { return String(e); } })();
-  const isZip = buf => { const b = new Uint8Array(buf, 0, 4); return b[0] === 0x50 && b[1] === 0x4B; };
 
   function getLandmarker(onStatus) {
     if (landmarkerP) return landmarkerP;
@@ -493,7 +493,7 @@
     if (!file) return false;
     const buf = await file.arrayBuffer();
     if (buf.byteLength < MODEL_MIN_BYTES) { toast("这个文件太小，不是姿态模型"); return false; }
-    if (!isZip(buf)) { toast("这不是姿态模型文件，请选择 pose_landmarker_full.task"); return false; }
+    if (!isZip(buf) && !confirm("这个文件看起来不像姿态模型（pose_landmarker_full.task）。仍然导入吗？")) return false;
     await dbPut("files", { id: "pose_model", bytes: buf, from: "手动导入", saved: new Date().toISOString() });
     landmarkerP = null;
     toast(`模型已保存到本机（${(buf.byteLength / 1e6).toFixed(1)} MB）`);
@@ -536,9 +536,12 @@
       const T = {
         lib: `<h3>运算库没有加载成功</h3><p>App 从你的网站和几个镜像都没拿到运算库文件。</p>
           <ol><li>确认 GitHub 仓库里有 vision_bundle.mjs、vision_wasm_internal.js、vision_wasm_internal.wasm 三个文件（由“下载离线文件.bat”下载）</li><li>或者打开能访问国外网站的网络后点“重试”</li></ol>`,
-        model: `<h3>缺少姿态模型文件</h3><p>运算库已经加载好了，只差模型文件 pose_landmarker_full.task（约 9 MB）。${loadLog.some(l => l.includes("404")) ? "你的 GitHub 仓库里还没有这个文件。" : ""}</p>
-          <ol><li><b>最快：</b>在能访问国外网站的网络下，用 Safari 打开首页“姿态识别模型”里的地址，下载到“文件”App，然后点下面的“从文件导入”</li>
-          <li>或者把这个文件上传到 GitHub 仓库，和 index.html 放在一起</li><li>导入或上传一次后会保存在手机里，以后不用再下载</li></ol>
+        model: `<h3>没拿到姿态模型文件</h3>
+          <p>识别需要模型文件 pose_landmarker_full.task（约 9 MB），App 试了这些地方都没拿到：</p>
+          <ul style="margin:6px 0 10px;padding-left:18px">${loadLog.filter(l => l.startsWith("模型")).map(l => `<li style="margin:4px 0">${esc(l.replace(/^模型　/, ""))}</li>`).join("")}</ul>
+          <p style="font-weight:600;margin:12px 0 4px">解决办法（任选一个）</p>
+          <ol><li><b>最快：</b>在能访问国外网站的网络下，用 Safari 打开首页“姿态识别模型”里的地址，下载到“文件”App，然后点下面的“从文件导入模型”</li>
+          <li>让仓库里的 pose_landmarker_full.task 恢复正常（上面写着“你的网站”的那一行说明了它现在的问题）</li></ol>
           <label class="btn go" for="modelFile" style="margin-top:14px;width:100%">从文件导入模型</label>`,
         runtime: `<h3>识别程序启动失败</h3><p>模型已经拿到，但识别程序没有启动起来。App 已经把所有来源组合都试过了。下面的自检表里标红的一项就是原因。</p>
           <ol><li>最常见：仓库里的运算库和运行环境文件版本不一致，或上传时被改坏（例如被存成了 Git LFS 占位文件）。按自检结果重新上传那几个文件</li><li>点“清除缓存后重新下载”，排除手机里缓存了坏文件的可能</li><li>还不行就把这一整屏截图发给开发者</li></ol>`,

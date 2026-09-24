@@ -1,5 +1,5 @@
 /* 离线缓存：首次联网打开后，App、姿态模型和运算库都存在手机里，训练场没网也能用 */
-const CACHE = "coachmind-v5";
+const CACHE = "coachmind-v6";
 const CORE = ["./", "index.html", "app.js", "engine.js", "coach.js", "cover.js", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => {
