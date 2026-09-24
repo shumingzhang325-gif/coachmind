@@ -1,12 +1,13 @@
-# 知练 CoachMind v0.7
-## 查明的问题
-日志显示所有运算库都加载成功，但识别程序报 “Unable to open zip archive”：仓库里的 pose_landmarker_full.task 已损坏
-（开头和大小都对，ZIP 内部结构坏了，典型原因是提交时被当成文本做了换行符转换）。
-App 先用了网站上这份坏文件，所以一直没去 Google 取好的。
+# 知练 CoachMind v0.8
 ## 修复
-- 模型下载、缓存、导入都检查完整的 ZIP 结构，坏文件直接跳过并说明原因
-- 识别程序说模型打不开时，自动换下一个来源（不再把同一个坏文件试几十遍）
-- 成功后把好的模型存进手机，以后离线可用
-- 新增 .gitattributes，防止 .task / .wasm 再被换行符转换改坏
+- iPhone 上“Expected ArrayBuffer for the first argument”：模型检查改为逐字节读取，Safari 可用
+- App 自身程序错误不再被误报成“识别程序启动失败”
+## 新增
+- 开场动画：分道线绘出 → 红色终点线扫过揭示“知练” → 计时读数 → 融入封面（每次打开只播一次，可点击跳过）
+- 项目技术库（按项群训练理论）：短跑、跳远、举重、中长跑、体操、跳水、排球、羽毛球、网球、篮球、足球
+  每项技术：技术环节 → 关键技术点 → 常见错误（视频里怎么看 / 技术原因 / 身体原因 / 纠正练习 / 伤病风险）
+- 通用动作分析：任何项目都能用——骨骼回放、关节角度曲线、自动检测跳跃并按腾空时间计算高度
+- 技术要点检查：分析结果里按该技术的关键点逐条判断“达标/待改进”，随记录保存
 ## 部署
-覆盖上传：index.html app.js engine.js coach.js cover.js sw.js manifest.webmanifest icon-*.png，以及 .gitattributes
+上传/覆盖：index.html app.js engine.js coach.js cover.js sports.js sw.js manifest.webmanifest icon-180.png icon-192.png icon-512.png .gitattributes
+（sports.js 是新增文件）
