@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="知练">
+<meta name="theme-color" content="#F4F6F3">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<title>知练 CoachMind</title>
+<style>
+:root {
+  --bg: #F4F6F3; --surface: #FFFFFF; --ink: #16211A; --muted: #5E6A62; --rule: #DCE2DC;
+  --brand: #2E9B45; --brand-ink: #FFFFFF; --brand-soft: #E4F2E6; --flag: #C8711C; --flag-soft: #FBEEDF;
+  --lane-l: #2E9B45; --lane-r: #16211A; --danger: #B3261E;
+  --r-sm: 8px; --r-md: 14px;
+  --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0F1411; --surface: #18201B; --ink: #E6ECE7; --muted: #98A49C; --rule: #2A342D;
+    --brand: #43B35A; --brand-soft: #1C2E21; --flag: #E8963F; --flag-soft: #33261A; --lane-r: #E6ECE7; }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 16px; line-height: 1.5; }
+body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+.num { font-variant-numeric: tabular-nums; }
+
+header.bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--rule); }
+header.bar h1 { font-size: 19px; margin: 0; font-weight: 700; letter-spacing: 0.02em; flex: 1; }
+header.bar h1 small { font-weight: 400; color: var(--muted); font-size: 13px; margin-left: 6px; letter-spacing: 0; }
+.back { border: 0; background: none; color: var(--brand); padding: 8px 4px; min-height: 44px; font-weight: 600; }
+
+main { max-width: 1180px; margin: 0 auto; padding: 16px; }
+section.view { display: none; }
+section.view.on { display: block; }
+
+h2 { font-size: 22px; margin: 8px 0 12px; line-height: 1.3; }
+h3 { font-size: 17px; margin: 20px 0 8px; }
+p.hint { color: var(--muted); margin: 4px 0 12px; font-size: 15px; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 18px;
+  border-radius: var(--r-sm); border: 1px solid var(--rule); background: var(--surface); font-weight: 600; }
+.btn.primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+.btn.ghost { background: transparent; }
+.btn:disabled { opacity: .45; }
+.btn.block { width: 100%; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.row > .grow { flex: 1; }
+
+.choice { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0 24px; }
+.choice button { text-align: left; min-height: 116px; padding: 16px; border-radius: var(--r-md); border: 1px solid var(--rule);
+  background: var(--surface); display: flex; flex-direction: column; justify-content: space-between; }
+.choice button strong { font-size: 20px; }
+.choice button span { color: var(--muted); font-size: 14px; }
+.choice button svg { width: 40px; height: 40px; }
+
+.field { display: block; margin: 12px 0; }
+.field > span { display: block; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
+.field input, .field select, .field textarea { width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid var(--rule);
+  border-radius: var(--r-sm); background: var(--surface); }
+.field textarea { min-height: 80px; }
+.inline-add { display: flex; gap: 8px; }
+.inline-add input { flex: 1; }
+
+.list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+.list li { border-bottom: 1px solid var(--rule); }
+.list button { width: 100%; text-align: left; background: none; border: 0; padding: 14px 2px; display: grid;
+  grid-template-columns: 1fr auto; gap: 2px 12px; min-height: 60px; }
+.list .t { font-weight: 600; }
+.list .s { color: var(--muted); font-size: 14px; grid-column: 1; }
+.list .k { grid-row: 1 / span 2; grid-column: 2; align-self: center; text-align: right; font-size: 15px; }
+.tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--flag-soft); color: var(--flag); font-weight: 600; }
+.empty { color: var(--muted); padding: 20px 0; }
+
+.note { border-left: 3px solid var(--flag); background: var(--flag-soft); padding: 10px 12px; border-radius: 0 var(--r-sm) var(--r-sm) 0; margin: 10px 0; font-size: 15px; }
+.note.info { border-color: var(--brand); background: var(--brand-soft); }
+
+.stage { background: #000; border-radius: var(--r-md); overflow: hidden; touch-action: manipulation; display: flex; justify-content: center; }
+.stage canvas.frame { display: block; max-width: 100%; max-height: 62vh; width: auto; height: auto; }
+.framebox { position: relative; display: block; max-width: 100%; }
+.framebox video { display: block; max-width: 100%; max-height: 62vh; width: auto; height: auto; }
+.framebox canvas.ov { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.scrub { width: 100%; margin: 12px 0 4px; accent-color: var(--brand); height: 32px; }
+.meta { color: var(--muted); font-size: 14px; }
+
+.progress { height: 10px; background: var(--rule); border-radius: 999px; overflow: hidden; margin: 12px 0; }
+.progress > div { height: 100%; width: 0; background: var(--brand); transition: width .15s linear; }
+
+/* 结果页 */
+.result { display: grid; gap: 20px; }
+@media (min-width: 820px) {
+  .result { grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: start; }
+  .result .left { position: sticky; top: 76px; }
+}
+.controls { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.controls .btn { min-width: 48px; padding: 0 12px; }
+.speed { margin-left: auto; display: flex; border: 1px solid var(--rule); border-radius: var(--r-sm); overflow: hidden; }
+.speed button { border: 0; background: var(--surface); min-height: 48px; padding: 0 12px; font-size: 14px; }
+.speed button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+
+.strip { margin-top: 14px; }
+.strip svg { width: 100%; height: auto; display: block; touch-action: none; }
+.strip .cap { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+.metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: var(--r-md); overflow: hidden; margin: 0; }
+.metrics div { padding: 10px 12px; border-bottom: 1px solid var(--rule); }
+.metrics div:nth-child(odd) { border-right: 1px solid var(--rule); }
+.metrics dt { font-size: 13px; color: var(--muted); }
+.metrics dd { margin: 0; font-size: 22px; font-weight: 600; }
+.metrics dd small { font-size: 13px; font-weight: 400; color: var(--muted); margin-left: 3px; }
+.metrics div.hit { background: var(--flag-soft); }
+.metrics div.hit dd { color: var(--flag); }
+
+table.steps { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+table.steps th, table.steps td { padding: 6px 4px; border-bottom: 1px solid var(--rule); text-align: right; }
+table.steps th:first-child, table.steps td:first-child { text-align: left; }
+table.steps th { color: var(--muted); font-weight: 400; }
+.tablewrap { overflow-x: auto; }
+
+.card { background: var(--surface); border: 1px solid var(--rule); border-left: 4px solid var(--flag); border-radius: var(--r-md);
+  padding: 14px 16px; margin: 12px 0; }
+.card h4 { margin: 0 0 6px; font-size: 17px; }
+.card h4 .id { color: var(--muted); font-weight: 400; font-size: 13px; margin-right: 6px; }
+.card .sym { margin: 0 0 10px; }
+.card ol { padding-left: 20px; margin: 6px 0; }
+.card ol li { margin: 8px 0; }
+.card .sub { color: var(--muted); font-size: 14px; }
+.card details { margin-top: 10px; font-size: 14px; }
+.card details summary { cursor: pointer; color: var(--brand); font-weight: 600; min-height: 32px; }
+.card .ev { margin: 8px 0; }
+.card a { color: var(--brand); word-break: break-all; }
+.verdict { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.verdict button { flex: 1; min-width: 88px; min-height: 44px; border: 1px solid var(--rule); background: var(--bg); border-radius: var(--r-sm); font-size: 15px; }
+.verdict button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.safety { color: var(--danger); font-weight: 600; font-size: 14px; margin: 0 0 8px; }
+
+details.guide { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-md); padding: 4px 16px; margin: 24px 0; }
+details.guide summary { min-height: 48px; display: flex; align-items: center; font-weight: 600; cursor: pointer; }
+details.guide ul { padding-left: 20px; }
+
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.chips button { border: 1px solid var(--rule); background: var(--surface); border-radius: 999px; padding: 6px 14px; min-height: 40px; }
+.chips button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-size: 15px; opacity: 0;
+  transition: opacity .2s; pointer-events: none; z-index: 20; }
+.toast.on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <button class="back" id="backBtn" hidden aria-label="返回">‹ 返回</button>
+  <h1 id="title">知练<small>AI 运动科学教练</small></h1>
+</header>
+
+<main>
+<!-- 首页 -->
+<section class="view on" id="v-home">
+  <h2>新分析</h2>
+  <div class="choice">
+    <button data-action="sprint">
+      <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="25" cy="7" r="3.5"/><path d="M22 13l-6 8 7 4-3 10M16 21l-7 2M22 13l5 7 7-1M20 29l-9 4"/></svg>
+      <div><strong>短跑</strong><br><span>途中跑触地与步态</span></div>
+    </button>
+    <button data-action="clean">
+      <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 14h32"/><rect x="6" y="8" width="4" height="12" rx="1"/><rect x="30" y="8" width="4" height="12" rx="1"/><circle cx="20" cy="22" r="3"/><path d="M20 25v7M15 38l5-6 5 6M14 14l6 8 6-8"/></svg>
+      <div><strong>高翻 / 抓举</strong><br><span>杠铃轨迹与发力</span></div>
+    </button>
+  </div>
+
+  <div class="row"><h2 class="grow" style="margin:0">历史记录</h2>
+    <button class="btn ghost" id="exportCsv">导出数据</button></div>
+  <div class="chips" id="athleteFilter"></div>
+  <ul class="list" id="historyList"></ul>
+
+  <details class="guide">
+    <summary>拍摄指南（iPhone 16 Pro）</summary>
+    <p><b>先设置</b>：设置 → 相机 → 录制慢动作 → 1080p 240 fps；格式 → 兼容性最佳。</p>
+    <p><b>短跑</b></p>
+    <ul>
+      <li>手机上三脚架，固定不动、不变焦、不跟拍</li>
+      <li>机位与跑道垂直，离跑道 10–15 米，高度约在髋部</li>
+      <li>画面覆盖 6–8 米，至少能看到 3 步</li>
+      <li>在运动员所跑的那条道中间放两个标志桶，间距已知（如 5 米）</li>
+    </ul>
+    <p><b>高翻 / 抓举</b></p>
+    <ul>
+      <li>正侧面，离运动员 3–4 米，高度约在杠铃片中心</li>
+      <li>全身和整片杠铃片都在画面内，使用标准 45 cm 杠铃片</li>
+    </ul>
+    <p><b>选视频时</b>：尽量用原片。视频经微信转发会被压成 30 帧，触地时间就不准了。</p>
+  </details>
+</section>
+
+<!-- 新建：选视频 -->
+<section class="view" id="v-new">
+  <h2 id="newTitle">短跑分析</h2>
+  <label class="field"><span>运动员</span>
+    <select id="athleteSel"></select></label>
+  <div class="inline-add" id="addAthleteRow" hidden>
+    <input id="newAthleteName" placeholder="输入姓名或编号" autocomplete="off">
+    <button class="btn" id="addAthleteBtn">添加</button>
+  </div>
+
+  <label class="btn primary block" style="margin-top:16px" for="fileInput">选择视频</label>
+  <input type="file" id="fileInput" accept="video/*" hidden>
+  <div id="fileInfo"></div>
+
+  <div id="fpsBox" hidden>
+    <label class="field"><span>实际拍摄帧率（fps）</span>
+      <input type="number" id="fpsReal" inputmode="decimal" min="24" max="1000" step="1"></label>
+    <label class="field" id="markerField"><span>两个标志桶的间距（米）</span>
+      <input type="number" id="markerDist" inputmode="decimal" value="5" min="0.5" step="0.5"></label>
+    <button class="btn primary block" id="toRangeBtn">下一步：选择分析片段</button>
+  </div>
+</section>
+
+<!-- 片段与标定 -->
+<section class="view" id="v-calib">
+  <h2 id="calibTitle">选择分析片段</h2>
+  <p class="hint" id="calibHint"></p>
+  <div class="stage" id="calibStage">
+    <canvas class="frame" id="calibCanvas"></canvas>
+  </div>
+  <input type="range" class="scrub" id="calibScrub" min="0" max="1000" value="0" aria-label="视频位置">
+  <div class="row meta num"><span id="calibTime" class="grow">0.000 s</span><span id="rangeInfo"></span></div>
+
+  <div id="rangeControls" class="row" style="margin-top:10px">
+    <button class="btn grow" id="setStart">设为起点</button>
+    <button class="btn grow" id="setEnd">设为终点</button>
+  </div>
+  <div id="calibControls" class="row" style="margin-top:10px" hidden>
+    <button class="btn grow" id="undoPt">撤销一个点</button>
+    <button class="btn grow ghost" id="skipCalib">跳过标定</button>
+  </div>
+  <div id="calibWarn"></div>
+  <button class="btn primary block" id="calibNext" style="margin-top:16px">下一步：标定</button>
+</section>
+
+<!-- 处理中 -->
+<section class="view" id="v-process">
+  <h2>正在分析</h2>
+  <p class="hint" id="procStatus">加载姿态模型…</p>
+  <div class="progress"><div id="procBar"></div></div>
+  <div class="stage"><canvas class="frame" id="procCanvas"></canvas></div>
+  <p class="meta">视频只在本机处理，不会上传。</p>
+  <button class="btn block" id="cancelProc" style="margin-top:12px">取消</button>
+</section>
+
+<!-- 结果 -->
+<section class="view" id="v-result">
+  <div class="result">
+    <div class="left">
+      <div id="playerWrap">
+        <div class="stage" id="playStage">
+          <div class="framebox">
+            <video id="playVideo" playsinline muted preload="auto"></video>
+            <canvas class="ov" id="playOverlay"></canvas>
+          </div>
+        </div>
+        <input type="range" class="scrub" id="playScrub" min="0" max="0" value="0" aria-label="帧位置">
+        <div class="controls">
+          <button class="btn" id="prevFrame" aria-label="上一帧">‹</button>
+          <button class="btn" id="playBtn">播放</button>
+          <button class="btn" id="nextFrame" aria-label="下一帧">›</button>
+          <div class="speed" role="group" aria-label="播放速度">
+            <button data-rate="0.125" aria-pressed="true">1/8</button>
+            <button data-rate="0.25" aria-pressed="false">1/4</button>
+            <button data-rate="1" aria-pressed="false">1×</button>
+          </div>
+        </div>
+        <div class="meta num" id="frameInfo"></div>
+      </div>
+      <div id="noVideo" class="note info" hidden>历史记录不保存视频，只保存指标和诊断。</div>
+      <div class="strip" id="strip"></div>
+    </div>
+
+    <div class="right">
+      <h2 id="resTitle"></h2>
+      <div class="meta" id="resMeta"></div>
+      <div id="resNotes"></div>
+      <h3>关键指标</h3>
+      <dl class="metrics num" id="metrics"></dl>
+      <div id="stepsBox"></div>
+      <h3>诊断</h3>
+      <p class="hint">AI 给出可能原因和验证方法，结论由教练确认。</p>
+      <div id="cards"></div>
+      <label class="field"><span>教练备注</span><textarea id="coachNote" placeholder="现场观察、处理意见…"></textarea></label>
+      <div class="row">
+        <button class="btn primary grow" id="saveBtn">保存</button>
+        <button class="btn grow" id="shareBtn">分享报告</button>
+      </div>
+      <button class="btn ghost block" id="deleteBtn" style="margin-top:10px;color:var(--danger)" hidden>删除这条记录</button>
+    </div>
+  </div>
+</section>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js"></script>
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
