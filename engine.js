@@ -606,12 +606,35 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     return { action: "sprint", fps: fs, steps, summary, notes, series: { hipX: hx } };
   }
 
+
+  // 步频（摆腿周期法）：两踝前后距离每一步变号一次。脚看不清、触地识别失败时也能得到节奏。
+  function cadenceFromLegSwing(pose, fs, c) {
+    const d0 = pose.map(f => f ? f[SIDES.left.ankle][0] - f[SIDES.right.ankle][0] : NaN);
+    if (d0.filter(isF).length < fs * 0.4) return null;
+    const d = lowpass(d0, fs, 8);
+    const legLen = median(pose.map(f => f ? Math.hypot(f[23][0] - f[27][0], f[23][1] - f[27][1]) : NaN));
+    const hyst = 0.15 * legLen;
+    const cross = [];
+    let state = 0;
+    for (let i = 0; i < d.length; i++) {
+      if (!isF(d[i])) continue;
+      if (state >= 0 && d[i] < -hyst) { if (state > 0) cross.push(i); state = -1; }
+      else if (state <= 0 && d[i] > hyst) { if (state < 0) cross.push(i); state = 1; }
+    }
+    if (cross.length < 3) return null;
+    const hz = (cross.length - 1) / ((cross[cross.length - 1] - cross[0]) / fs);
+    return { hz: r3(hz), steps: cross.length, frames: cross };
+  }
+
   function analyzeSprint(pose, fs, TH, scale) {
     const fixed = unswapLegs(pose);
     const base = sprintBase(fixed.pose, fs, TH.sprint);
     const det = detectSprintContacts(fixed.pose, fs, TH.sprint, base);
     const r = sprintFromContacts(fixed.pose, fs, TH, scale, det.contacts, base);
     r.debug = det.debug; r.legSwaps = fixed.swaps; r.pose = fixed.pose;
+    const cd = cadenceFromLegSwing(fixed.pose, fs, TH.sprint);
+    if (cd) { r.summary.cadence_swing_hz = cd.hz; r.summary.cadence_spm = Math.round(cd.hz * 60); r.cadenceFrames = cd.frames; }
+    if (r.steps.length < 2 && cd) r.notes.unshift(`脚的落点看不清，已改用摆腿周期测出步频 ${cd.hz.toFixed(2)} 步/秒（${Math.round(cd.hz * 60)} 步/分钟）。`);
     if (r.steps.length < 2) r.notes.unshift("自动识别到的触地少于 2 次。可以在回放里逐帧找到着地和离地，用“手动标记”补上；也可以展开“识别过程”看原因。");
     return r;
   }
@@ -805,6 +828,7 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     hip_angle_at_peak_velocity_deg: ["最大速度时髋角", "°"], knee_angle_at_liftoff_deg: ["离地时膝角", "°"],
     knee_angle_at_catch_deg: ["接杠时膝角", "°"], min_elbow_angle_first_pull_deg: ["第一次拉最小肘角", "°"],
     hip_ext_to_peak_velocity_ms: ["最大伸髋相对杠铃峰速", "ms"], side_analyzed: ["分析侧", ""],
+    cadence_swing_hz: ["步频（摆腿周期法）", "步/s"], cadence_spm: ["步频", "步/分"],
     jump_height_cm: ["跳跃高度", "cm"], flight_time_s: ["腾空时间", "s"], knee_min_pre_deg: ["起跳前最小膝角", "°"], knee_takeoff_deg: ["离地时膝角", "°"],
     landing_knee_min_deg: ["落地缓冲最小膝角", "°"], arm_peak_deg: ["腾空中手臂最大上举", "°"], n_jumps: ["检测到跳跃", "次"],
     knee_min_deg: ["全程最小膝角", "°"], hip_min_deg: ["全程最小髋角", "°"], elbow_min_deg: ["全程最小肘角", "°"], trunk_lean_max_deg: ["躯干最大倾斜", "°"],
@@ -819,6 +843,6 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
   function r3(v) { return Math.round(v * 1000) / 1000; } function r4(v) { return Math.round(v * 10000) / 10000; }
 
   const API = { median, percentile, lowpass, derivative, angle, segments, fillNaN, SIDES, SKELETON,
-    analyzeSprint, analyzeGeneral, sprintFromContacts, sprintBase, unswapLegs, analyzeClean, PlateTracker, matchCards, LABELS, fmt, PLATE_DIAMETER_M: 0.45 };
+    analyzeSprint, analyzeGeneral, cadenceFromLegSwing, sprintFromContacts, sprintBase, unswapLegs, analyzeClean, PlateTracker, matchCards, LABELS, fmt, PLATE_DIAMETER_M: 0.45 };
   if (typeof module !== "undefined" && module.exports) module.exports = API; else root.CM = API;
 })(typeof self !== "undefined" ? self : this);

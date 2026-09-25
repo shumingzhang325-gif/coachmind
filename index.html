@@ -5,26 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="知练">
-<meta name="theme-color" content="#EEF1F3" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0A121A" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#0A0A0B">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-192.png">
 <title>知练 CoachMind</title>
 <style>
 :root {
-  --bg: #EEF1F3; --surface: #FFFFFF; --sunk: #E3E8EC; --ink: #0E1E2E; --muted: #66778A; --rule: #D5DCE2;
-  --red: #E0452A; --red-soft: #FCE9E4; --green: #1E9A52; --green-ink: #FFFFFF; --green-soft: #E2F3E9;
-  --lane-l: #1E9A52; --lane-r: #0E1E2E; --video: #0A121A;
+  --bg: #0A0A0B; --surface: #131313; --sunk: #0E0E0F; --ink: #EEE7D8; --muted: #8E887C; --rule: #2A2721;
+  --gold: #C9A45C; --gold-hi: #E4C98B; --gold-soft: rgba(201,164,92,0.12);
+  --red: #D0674C; --red-soft: #26170F; --green: #C9A45C; --green-ink: #0A0A0B; --green-soft: rgba(201,164,92,0.12);
+  --lane-l: #C9A45C; --lane-r: #EEE7D8; --video: #000;
   --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  --num: "DIN Alternate", "Bahnschrift", "DIN", -apple-system, "PingFang SC", sans-serif;
+  --serif: "Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", "SimSun", serif;
+  --num: "Didot", "Bodoni 72", "Bodoni MT", "Playfair Display", Georgia, serif;
   --pad: 20px;
-}
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #0A121A; --surface: #121D28; --sunk: #0E1720; --ink: #E6EDF3; --muted: #8B9CAD; --rule: #1F2E3D;
-    --red: #FF6A4A; --red-soft: #2B1A17; --green: #34C27A; --green-ink: #06140C; --green-soft: #11281C; --lane-r: #E6EDF3; --video: #000; }
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
@@ -136,8 +133,8 @@ p.lead { color: var(--muted); margin: 0 0 18px; font-size: 15px; }
 
 
 /* ---------- 运动员页 ---------- */
-:root { --ph1: #9DB0C2; --ph2: #1E9A52; --ph3: #E0452A; --ph4: #0E1E2E; }
-@media (prefers-color-scheme: dark) { :root { --ph1: #4F6377; --ph2: #34C27A; --ph3: #FF6A4A; --ph4: #E6EDF3; } }
+:root { --ph1: #4A443A; --ph2: #C9A45C; --ph3: #D0674C; --ph4: #EEE7D8; }
+
 .people { display: grid; gap: 10px; margin: 0 0 30px; }
 @media (min-width: 700px) { .people { grid-template-columns: 1fr 1fr; } }
 .person { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 12px; text-align: left; border: 0; background: var(--surface); border-radius: 18px; padding: 16px 18px; min-height: 84px; }
@@ -317,6 +314,9 @@ details.errd[open] summary::after { content: "−"; }
 @keyframes in-out { to { opacity: 0; transform: scale(1.04); visibility: hidden; } }
 @media (prefers-reduced-motion: reduce) { #intro { display: none; } }
 
+.roirow { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 14px; color: var(--muted); }
+.roirow input { flex: 1; accent-color: var(--gold, #C9A45C); }
+
 /* 底部操作条 */
 .actionbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; padding: 12px var(--pad) calc(12px + env(safe-area-inset-bottom));
   background: linear-gradient(to top, var(--bg) 70%, color-mix(in srgb, var(--bg) 0%, transparent)); display: flex; gap: 10px; justify-content: center; }
@@ -441,6 +441,81 @@ table.steps .side { display: inline-block; width: 22px; height: 6px; border-radi
   background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-size: 15px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; white-space: nowrap; }
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ================= 欧式皇家：黑 · 古金 · 象牙白 ================= */
+html, body { background: var(--bg); color: var(--ink); }
+h1, h2, h3, .big, .sechead h2, h3.sec, .tech h3, .dx h4, .ins h4, .hero-copy h1, .person .nm, .sport b { font-family: var(--serif); font-weight: 700; letter-spacing: 0.04em; }
+.sechead { border-bottom: 1px solid var(--rule); padding-bottom: 10px; margin-bottom: 14px; }
+.sechead h2 { font-size: 22px; position: relative; }
+.sechead h2::after { content: ""; position: absolute; left: 0; bottom: -11px; width: 28px; height: 1px; background: var(--gold); }
+h3.sec { font-size: 19px; color: var(--ink); }
+.btn { border-radius: 4px; letter-spacing: 0.12em; font-weight: 600; }
+.btn.go { background: linear-gradient(180deg, var(--gold-hi), var(--gold)); color: #0A0A0B; box-shadow: 0 6px 24px rgba(201,164,92,0.18); }
+.btn:not(.go) { background: transparent; border: 1px solid var(--rule); }
+.btn.sm { border-radius: 4px; }
+.group, .sheet, .person, .sport, .tech, .dx, .ins, .today, .grid, .strip, .tablewrap, .radarbox, .axes, table.cmp, .bars, .mark, details.dbg, .filecard, .pick, .clear, .err, #checkBox .checks, #checkBox .errd, .day, .note { border-radius: 8px; }
+.group, .sheet, .person, .sport, .tech, .dx, .ins, .today, .grid, .strip, .tablewrap, .radarbox, .axes, table.cmp, .bars, .mark, details.dbg, .filecard, .clear, .err, #checkBox .checks, .day { background: var(--surface); border: 1px solid var(--rule); }
+.stage { border-radius: 6px; border: 1px solid var(--rule); }
+.pick { border: 1px solid var(--gold); background: linear-gradient(180deg, rgba(201,164,92,0.06), transparent); }
+.pick svg { color: var(--gold); }
+.chips button, .worlds button { letter-spacing: 0.08em; }
+.chips button[aria-pressed="true"] { background: var(--gold); border-color: var(--gold); color: #0A0A0B; }
+.board { background: linear-gradient(160deg, #18150E, #0D0C0A 60%); color: var(--ink); border: 1px solid rgba(201,164,92,0.4); border-radius: 8px; }
+.board .main b { font-family: var(--num); font-weight: 400; font-size: 72px; color: var(--gold-hi); }
+.board .sub { border-top-color: rgba(201,164,92,0.25); }
+.board .sub b { font-family: var(--num); font-weight: 400; }
+.board .lbl, .board .who { color: var(--muted); opacity: 1; letter-spacing: 0.08em; }
+.grid dd, table.steps td, .sheet .val, .person .cd, .filecard .fps, .proc .pct, .readout .n, .finfo .n { font-family: var(--num); font-weight: 400; }
+.proc .pct { color: var(--gold-hi); }
+.progress > div { background: linear-gradient(90deg, var(--gold), var(--gold-hi)); }
+.ruler .head, .ruler .head::after { background: var(--gold); }
+.verdict button[aria-pressed="true"], .speed button[aria-pressed="true"], .tabs button[aria-pressed="true"], .scale button[aria-pressed="true"] { background: var(--gold); color: #0A0A0B; box-shadow: none; }
+.ctrl .play { background: var(--gold); color: #0A0A0B; }
+.ctrl .iconbtn { border: 1px solid var(--rule); background: transparent; }
+.dx::before { background: var(--gold); }
+.phases-seq i { background: var(--gold); color: #0A0A0B; }
+.person .dot.green { background: var(--gold); }
+.link { color: var(--gold); letter-spacing: 0.06em; }
+.msg { background: var(--red-soft); border: 1px solid rgba(208,103,76,0.35); }
+.msg.ok { background: var(--gold-soft); border-color: rgba(201,164,92,0.35); }
+.msg.ok b { color: var(--gold); }
+header.bar { background: rgba(10,10,11,0.82); }
+header.bar .ttl { font-family: var(--serif); letter-spacing: 0.12em; }
+.toast { background: var(--gold); color: #0A0A0B; letter-spacing: 0.06em; }
+.actionbar { background: linear-gradient(to top, #0A0A0B 72%, rgba(10,10,11,0)); }
+/* 封面：真人摄影 + 金色细框 */
+.hero { background: #000; border: 1px solid rgba(201,164,92,0.25); }
+.hero-photo { position: absolute; inset: 0; background-size: cover; background-position: center 30%; filter: grayscale(1) contrast(1.12) brightness(0.62); opacity: 0; transition: opacity .8s ease; }
+.hero-photo.on { opacity: 1; }
+.hero-photo.on ~ canvas { opacity: 0; }
+.hero::after { content: ""; position: absolute; inset: 12px; border: 1px solid rgba(201,164,92,0.45); pointer-events: none; z-index: 1; }
+.hero-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0) 35%, rgba(0,0,0,0.25) 60%, rgba(10,10,11,0.95) 100%); z-index: 1; pointer-events: none; }
+.hero-top b { font-family: var(--serif); letter-spacing: 0.3em; font-size: 20px; color: var(--gold-hi); }
+.hero-top b em { font-family: var(--num); font-style: italic; font-weight: 400; letter-spacing: 0.04em; color: var(--ink); font-size: 15px; margin-left: 8px; }
+.hero-copy .eyebrow { font-family: var(--num); font-style: italic; color: var(--gold); letter-spacing: 0.08em; font-size: 16px; margin: 0 0 6px; text-shadow: none; }
+.hero-copy h1 { font-size: clamp(52px, 15vw, 88px); letter-spacing: 0.08em; }
+.hero-copy .btn.go { padding: 0 28px; }
+.hero-change { background: none; border: 0; color: rgba(238,231,216,0.7); font-size: 13px; letter-spacing: 0.08em; margin-left: 12px; min-height: 44px; text-decoration: underline; text-underline-offset: 4px; }
+.worlds { background: rgba(0,0,0,0.45); border-color: rgba(201,164,92,0.35); }
+.worlds button[aria-pressed="true"] { background: var(--gold); color: #0A0A0B; }
+/* 项目卡片：有照片时用照片 */
+.sport { position: relative; overflow: hidden; }
+.sport.photo { background-size: cover; background-position: center; min-height: 150px; justify-items: start; align-content: end; }
+.sport.photo::before { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.05), rgba(10,10,11,0.88)); }
+.sport.photo svg { display: none; }
+.sport.photo b, .sport.photo span { position: relative; }
+.sporthead.photo { position: relative; min-height: 220px; align-items: flex-end; padding: 16px; border: 1px solid rgba(201,164,92,0.35); border-radius: 8px; background-size: cover; background-position: center; overflow: hidden; }
+.sporthead.photo::before { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.1), rgba(10,10,11,0.92)); }
+.sporthead.photo > * { position: relative; }
+.sporthead.photo .sh-glyph { display: none; }
+/* 开场：金色 */
+#intro { background: #070707; }
+.in-lanes line { stroke: rgba(201,164,92,0.35); }
+.in-line { background: var(--gold-hi); box-shadow: 0 0 18px rgba(228,201,139,0.8); }
+.in-word span { font-family: var(--serif); font-weight: 700; letter-spacing: 0.24em; color: var(--ink); }
+.in-tag { font-family: var(--serif); letter-spacing: 0.3em; color: var(--gold); }
+.in-time { font-family: var(--num); color: rgba(228,201,139,0.7); }
+
 </style>
 </head>
 <body>
@@ -465,18 +540,22 @@ table.steps .side { display: inline-block; width: 22px; height: 6px; border-radi
 <!-- 首页 -->
 <section class="view on" id="v-home">
   <div class="hero" id="hero">
+    <div class="hero-photo" id="heroPhoto" aria-hidden="true"></div>
     <canvas id="heroCanvas" aria-hidden="true"></canvas>
+    <div class="hero-shade"></div>
     <div class="hero-top">
-      <b>知练</b>
+      <b>知练<em>CoachMind</em></b>
       <div class="worlds" role="group" aria-label="切换动作">
         <button data-w="sprint" aria-pressed="true">短跑</button>
         <button data-w="lift" aria-pressed="false">高翻</button>
       </div>
     </div>
     <div class="hero-copy">
+      <p class="eyebrow" id="heroEyebrow">Sprint</p>
       <h1 id="heroTitle">短跑</h1>
       <p id="heroLine">看清 0.1 秒里的每一次触地</p>
-      <button class="btn go" id="heroGo" data-action="sprint">分析一段短跑视频</button>
+      <button class="btn go" id="heroGo" data-action="sprint">分析一段短跑视频</button><label class="hero-change" for="heroFile">更换封面照片</label>
+      <input type="file" id="heroFile" accept="image/*" hidden>
     </div>
   </div>
 
@@ -554,6 +633,7 @@ table.steps .side { display: inline-block; width: 22px; height: 6px; border-radi
     <button class="btn" id="setStart">设为起点</button>
     <button class="btn" id="setEnd">设为终点</button>
   </div>
+  <label class="roirow" id="roiRow" hidden><span>框大小</span><input type="range" id="roiSize" min="10" max="100" value="35"></label>
   <div class="seg" id="calibControls" hidden>
     <button class="btn" id="undoPt">撤销</button>
     <button class="btn quiet" id="skipCalib">不标定，直接分析</button>

@@ -1,3 +1,4 @@
 *.task binary
 *.wasm binary
 *.mjs -text
+*.jpg binary

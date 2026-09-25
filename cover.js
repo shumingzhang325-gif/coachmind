@@ -139,7 +139,7 @@
       for (const [a, b] of list) { const A = map(P[a]), B = map(P[b]); g.moveTo(A[0], A[1]); g.lineTo(B[0], B[1]); }
       g.stroke();
       if (joints) {
-        g.fillStyle = `rgba(52,194,122,${alpha})`;
+        g.fillStyle = `rgba(201,164,92,${alpha})`;
         for (const k of Object.keys(P)) { if (!Array.isArray(P[k])) continue; const A = map(P[k]); g.beginPath(); g.arc(A[0], A[1], width * 0.95, 0, TAU); g.fill(); }
       }
     }

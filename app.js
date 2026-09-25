@@ -66,6 +66,7 @@
 
   // ---------------- 视图切换 ----------------
   const S = {};                // 当前分析的状态
+  window.__cmState = S;        // 便于排查问题
   let viewStack = ["home"];
   const VIEW_META = {
     home: { title: "", step: 0 }, sport: { title: "项目技术库", step: 0 }, new: { title: "选择视频", step: 1 }, calib: { title: "片段与标定", step: 2 },
@@ -299,15 +300,21 @@
     cctx.drawImage(hiddenVideo, 0, 0, S.W, S.H);
     const lw = Math.max(2, S.W / 400);
     cctx.lineWidth = lw;
+    if (S.target) {
+      const side = S.roiFrac * Math.min(S.W, S.H), [tx, ty] = S.target;
+      cctx.strokeStyle = "#C9A45C"; cctx.lineWidth = lw * 1.4;
+      cctx.strokeRect(tx - side / 2, ty - side / 2, side, side);
+      cctx.beginPath(); cctx.moveTo(tx - lw * 5, ty); cctx.lineTo(tx + lw * 5, ty); cctx.moveTo(tx, ty - lw * 5); cctx.lineTo(tx, ty + lw * 5); cctx.stroke();
+    }
     if (S.phase === "calib") {
       S.calibPts.forEach((p, i) => {
-        cctx.fillStyle = "#34C27A"; cctx.strokeStyle = "#fff";
+        cctx.fillStyle = "#C9A45C"; cctx.strokeStyle = "#fff";
         cctx.beginPath(); cctx.arc(p[0], p[1], lw * 4, 0, 7); cctx.fill(); cctx.stroke();
-        if (S.action === "sprint" && i === 1) { cctx.strokeStyle = "#34C27A"; cctx.beginPath(); cctx.moveTo(...S.calibPts[0]); cctx.lineTo(...p); cctx.stroke(); }
+        if (S.action === "sprint" && i === 1) { cctx.strokeStyle = "#C9A45C"; cctx.beginPath(); cctx.moveTo(...S.calibPts[0]); cctx.lineTo(...p); cctx.stroke(); }
       });
       if (S.action === "clean" && S.calibPts.length === 2) {
         const [c, e] = S.calibPts, r = Math.hypot(e[0] - c[0], e[1] - c[1]);
-        cctx.strokeStyle = "#34C27A"; cctx.lineWidth = lw * 1.5; cctx.beginPath(); cctx.arc(c[0], c[1], r, 0, 7); cctx.stroke();
+        cctx.strokeStyle = "#C9A45C"; cctx.lineWidth = lw * 1.5; cctx.beginPath(); cctx.arc(c[0], c[1], r, 0, 7); cctx.stroke();
       }
     }
   }
@@ -327,11 +334,24 @@
     setCalibHead(S.start);
     show("calib");
     updateCalibUI();
-    await seek(hiddenVideo, S.phase === "range" ? S.start : S.start + 0.5 / S.fpsFile);
+    await seek(hiddenVideo, S.phase === "range" ? hiddenVideo.currentTime || S.start : S.start + 0.5 / S.fpsFile);
     drawCalib();
   }
   function updateCalibUI() {
-    const range = S.phase === "range";
+    const range = S.phase === "range", pick = S.phase === "pick";
+    $("roiRow").hidden = !pick || !S.target;
+    if (pick) {
+      $("calibTitle").textContent = "选择运动员";
+      $("calibHint").textContent = S.target ? "金色框会跟着这个人走，只分析框里的画面。人很小或画面里有其他人时，这一步能明显提高识别率。框要能装下整个人，可以用下面的滑块调大小。" : "点一下要分析的运动员。画面里只有他一个人、而且人比较大时，也可以跳过。";
+      $("rangeControls").hidden = true; $("calibControls").hidden = false;
+      $("skipCalib").hidden = false; $("skipCalib").textContent = S.target ? "不用框，分析整个画面" : "跳过，分析整个画面";
+      $("undoPt").textContent = "重新选";
+      $("calibRuler").style.pointerEvents = "none"; $("calibRuler").style.opacity = "0.45";
+      $("calibNext").textContent = S.action === "general" ? "开始分析" : "下一步：标定";
+      $("calibNext").disabled = !S.target;
+      calibText(); return;
+    }
+    $("undoPt").textContent = "撤销"; $("skipCalib").textContent = "不标定，直接分析";
     $("calibTitle").textContent = range ? "选择片段" : (S.action === "sprint" ? "标定距离" : "标定杠铃片");
     $("calibHint").textContent = range ? "拖动时间尺，把起点设在运动员入画前、终点设在出画后。高翻的终点设在接杠站稳后。"
       : S.action === "sprint" ? `在画面上依次点两个标志桶的底部（间距 ${S.markerDist} 米）。不标定也能算触地时间，但算不了步长和速度。`
@@ -340,7 +360,7 @@
     $("skipCalib").hidden = S.action !== "sprint";
     $("calibRuler").style.pointerEvents = range ? "" : "none";
     $("calibRuler").style.opacity = range ? "1" : "0.45";
-    $("calibNext").textContent = range ? (S.action === "general" ? "开始分析" : "下一步：标定") : "开始分析";
+    $("calibNext").textContent = range ? "下一步：选择运动员" : "开始分析";
     $("calibNext").disabled = !range && ((S.action === "clean" && S.calibPts.length < 2) || (S.action === "sprint" && S.calibPts.length === 1));
     calibText();
   }
@@ -356,18 +376,23 @@
   $("setStart").onclick = () => { S.start = Math.min(hiddenVideo.currentTime, S.end - 0.1); calibText(); toast("已设起点 " + S.start.toFixed(2) + " s"); };
   $("setEnd").onclick = () => { S.end = Math.max(hiddenVideo.currentTime, S.start + 0.1); calibText(); toast("已设终点 " + S.end.toFixed(2) + " s"); };
   cc.addEventListener("pointerdown", e => {
-    if (S.phase !== "calib") return;
     const b = cc.getBoundingClientRect();
     const p = [(e.clientX - b.left) * S.W / b.width, (e.clientY - b.top) * S.H / b.height];
+    if (S.phase === "pick") { S.target = p; drawCalib(); updateCalibUI(); return; }
+    if (S.phase !== "calib") return;
     if (S.calibPts.length >= 2) S.calibPts = [];
     S.calibPts.push(p);
     drawCalib(); updateCalibUI();
   });
-  $("undoPt").onclick = () => { S.calibPts.pop(); drawCalib(); updateCalibUI(); };
-  $("skipCalib").onclick = () => { S.calibPts = []; runAnalysis(); };
+  $("undoPt").onclick = () => { if (S.phase === "pick") { S.target = null; } else S.calibPts.pop(); drawCalib(); updateCalibUI(); };
+  $("skipCalib").onclick = async () => {
+    if (S.phase === "pick") { S.target = null; if (S.action === "general") { runAnalysis(); return; } S.phase = "calib"; S.calibPts = []; await enterCalib(); return; }
+    S.calibPts = []; runAnalysis();
+  };
+  $("roiSize").oninput = e => { S.roiFrac = Number(e.target.value) / 100; drawCalib(); };
   $("calibNext").onclick = async () => {
-    if (S.phase === "range" && S.action === "general") { S.calibPts = []; runAnalysis(); return; }
-    if (S.phase === "range") { S.phase = "calib"; S.calibPts = []; await enterCalib(); return; }
+    if (S.phase === "range") { S.phase = "pick"; S.target = null; S.roiFrac = S.roiFrac || 0.35; $("roiSize").value = Math.round(S.roiFrac * 100); await enterCalib(); return; }
+    if (S.phase === "pick") { if (S.action === "general") { S.calibPts = []; runAnalysis(); return; } S.phase = "calib"; S.calibPts = []; await enterCalib(); return; }
     if (S.action === "sprint" && S.calibPts.length === 1) { toast("还差一个标志桶"); return; }
     runAnalysis();
   };
@@ -461,7 +486,7 @@
           onStatus && onStatus(`正在启动识别（${w.name}${delegate === "CPU" ? "，兼容模式" : ""}）`);
           try {
             const lm = await withTimeout(L.lib.PoseLandmarker.createFromOptions(fileset, {
-              baseOptions: { modelAssetBuffer: new Uint8Array(bytes), delegate }, runningMode: "VIDEO", numPoses: 1,
+              baseOptions: { modelAssetBuffer: new Uint8Array(bytes), delegate }, runningMode: "VIDEO", numPoses: 2,
               minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
             }), 60000, "启动");
             loadLog.push(`成功：运算库 ${L.src.name} + 运行环境 ${w.name} + ${delegate}`);
@@ -636,16 +661,69 @@
     const pose = new Array(N).fill(null), bar = S.action === "clean" ? new Array(N).fill([NaN, NaN]) : null;
     let tracker = null, lastTs = -1, lastMT = null, dupes = 0;
     const t0 = performance.now();
+    // 跟踪框：裁剪运动员周围区域放大到 512 像素再识别
+    const CROP = 512, rc = document.createElement("canvas"); rc.width = rc.height = CROP;
+    const rctx = rc.getContext("2d");
+    const minSide = Math.min(S.W, S.H), kv = S.vw / S.W;
+    let tcx = S.target ? S.target[0] : null, tcy = S.target ? S.target[1] : null, tside = S.target ? (S.roiFrac || 0.35) * minSide : 0, tvx = 0, tvy = 0, lost = 0;
+    let prevHip = null, prevH = null;
+    const roiBoxes = new Array(N).fill(null);
+    // 重复帧检测：缩成 48×27 灰度图比较
+    const SGW = 256, SGH = 144, sg = document.createElement("canvas"); sg.width = SGW; sg.height = SGH;
+    const sgx = sg.getContext("2d", { willReadFrequently: true });
+    let prevSig = null, sameFrames = 0;
     for (let i = 0; i < N; i++) {
       if (S.cancel) { S.processing = false; toast("已取消"); show("calib", false); return; }
       const mt = await seek(hiddenVideo, S.start + (i + 0.5) / S.fpsFile);
       if (mt != null && lastMT != null && Math.abs(mt - lastMT) < 1e-6) dupes++;
       if (mt != null) lastMT = mt;
       pctx.drawImage(hiddenVideo, 0, 0, S.W, S.H);
+      sgx.drawImage(hiddenVideo, 0, 0, SGW, SGH);
+      const sd = sgx.getImageData(0, 0, SGW, SGH).data;
+      // 数“明显变化”的像素：少于 4 个就算和上一帧完全相同（小目标移动也能被察觉）
+      if (prevSig) { let changed = 0; for (let k = 0; k < sd.length && changed < 4; k += 4) if (Math.abs(sd[k] - prevSig[k]) > 10 || Math.abs(sd[k + 1] - prevSig[k + 1]) > 10 || Math.abs(sd[k + 2] - prevSig[k + 2]) > 10) changed++; if (changed < 4) sameFrames++; }
+      prevSig = sd;
       let ts = Math.round(i * 1000 / S.fpsReal); if (ts <= lastTs) ts = lastTs + 1; lastTs = ts;
       try {
-        const r = lm.detectForVideo(pc, ts);
-        if (r.landmarks && r.landmarks[0]) pose[i] = r.landmarks[0].map(p => [p.x * S.W, p.y * S.H, p.visibility == null ? 1 : p.visibility]);
+        let cands = [];
+        if (S.target) {
+          const side = Math.min(tside, S.W, S.H);
+          const sx = Math.max(0, Math.min(S.W - side, tcx - side / 2)), sy = Math.max(0, Math.min(S.H - side, tcy - side / 2));
+          roiBoxes[i] = [sx, sy, side];
+          rctx.drawImage(hiddenVideo, sx * kv, sy * kv, side * kv, side * kv, 0, 0, CROP, CROP);
+          const r = lm.detectForVideo(rc, ts);
+          cands = (r.landmarks || []).map(l => l.map(p => [sx + p.x * side, sy + p.y * side, p.visibility == null ? 1 : p.visibility]));
+        } else {
+          const r = lm.detectForVideo(pc, ts);
+          cands = (r.landmarks || []).map(l => l.map(p => [p.x * S.W, p.y * S.H, p.visibility == null ? 1 : p.visibility]));
+        }
+        const hipOf = f => [(f[23][0] + f[24][0]) / 2, (f[23][1] + f[24][1]) / 2];
+        const heightOf = f => { const ys = f.map(p => p[1]); return Math.max(...ys) - Math.min(...ys); };
+        // 按“预测位置”选人：上一帧位置 + 速度。站着不动的旁观者不会和预测一致
+        const base = S.target ? [tcx, tcy] : prevHip;
+        const pred = base ? [base[0] + tvx, base[1] + tvy] : null;
+        let best = null, ambiguous = false;
+        if (cands.length) {
+          if (pred) {
+            const cost = f => Math.hypot(hipOf(f)[0] - pred[0], hipOf(f)[1] - pred[1]) + (prevH ? 0.5 * Math.abs(heightOf(f) - prevH) : 0);
+            const sorted = cands.slice().sort((x, y) => cost(x) - cost(y));
+            best = sorted[0];
+            if (sorted[1]) { const c0 = cost(sorted[0]), c1 = cost(sorted[1]); ambiguous = c1 < 1.5 * c0 + 2 && c1 < 0.5 * (prevH || heightOf(best)); }
+          } else best = cands.reduce((b, f) => (heightOf(f) > heightOf(b) ? f : b));
+        }
+        if (best) {
+          pose[i] = best;
+          const h = hipOf(best), bh = heightOf(best);
+          if (base && !ambiguous) { tvx = 0.5 * (h[0] - base[0]) + 0.5 * tvx; tvy = 0.5 * (h[1] - base[1]) + 0.5 * tvy; }
+          if (S.target) {
+            // 交叉时（两个人一样近）按原速度继续走，不被旁人带偏
+            if (ambiguous) { tcx += tvx; tcy += tvy; } else { tcx = h[0]; tcy = h[1]; }
+            tside = 0.8 * tside + 0.2 * Math.max(0.12 * minSide, Math.min(minSide, 2.6 * bh));
+            lost = 0;
+          }
+          prevHip = ambiguous && base ? [base[0] + tvx, base[1] + tvy] : h;
+          prevH = prevH ? 0.8 * prevH + 0.2 * bh : bh;
+        } else if (S.target) { tcx += tvx; tcy += tvy; tside = Math.min(minSide, tside * 1.08); lost++; }
       } catch (e) { /* 单帧失败跳过 */ }
       if (bar) {
         const img = pctx.getImageData(0, 0, S.W, S.H).data, g = new Uint8Array(S.W * S.H);
@@ -658,6 +736,7 @@
       }
       if (i % 4 === 0 || i === N - 1) {
         drawOverlay(pctx, pose[i], { bar, i, scale: 1 });
+        if (roiBoxes[i]) { const [bx, by, bs] = roiBoxes[i]; pctx.strokeStyle = "#C9A45C"; pctx.lineWidth = Math.max(2, S.W / 400); pctx.strokeRect(bx, by, bs, bs); }
         const el = (performance.now() - t0) / 1000, left = el / (i + 1) * (N - i - 1);
         $("procBar").style.width = ((i + 1) / N * 100).toFixed(1) + "%";
         $("procPct").innerHTML = `${Math.floor((i + 1) / N * 100)}<small>%</small>`;
@@ -666,7 +745,7 @@
       }
     }
     S.processing = false;
-    S.pose = pose; S.bar = bar; S.N = N; S.dupes = dupes;
+    S.pose = pose; S.bar = bar; S.N = N; S.dupes = dupes; S.sameFrames = sameFrames;
     const detected = pose.filter(Boolean).length / N;
     computeResult(detected);
     S.saved = false; S.savedId = null; S.verdicts = {}; S.coachNote = "";
@@ -681,11 +760,18 @@
       const [a, b] = S.calibPts; scale = S.markerDist / Math.hypot(b[0] - a[0], b[1] - a[1]);
     }
     if (S.action === "clean") { const [c, e] = S.calibPts; scale = CM.PLATE_DIAMETER_M / (2 * Math.hypot(e[0] - c[0], e[1] - c[1])); }
+    const dupRatio = S.N ? (S.sameFrames || 0) / S.N : 0;
+    let fpsNote = null;
+    if (dupRatio > 0.2 && S.fpsReal > S.fpsFile * 1.5) {
+      fpsNote = `有 ${Math.round(dupRatio * 100)}% 的帧和前一帧完全相同，这是实时录制的视频（例如屏幕录制、网络视频），不是慢动作原片。已改按文件实际帧率 ${Math.round(S.fpsFile)} fps 计算。触地时间这类毫秒级指标在低帧率下不可靠，步频（节奏）仍可参考。`;
+      S.fpsReal = Math.round(S.fpsFile);
+    } else if (dupRatio > 0.2) fpsNote = `有 ${Math.round(dupRatio * 100)}% 的帧是重复画面，原视频帧率偏低，时间类指标误差较大。`;
     const fs = S.fpsReal;
     S.scale = scale;
     S.result = S.action === "sprint" ? CM.analyzeSprint(S.pose, fs, TH, scale)
       : S.action === "general" ? CM.analyzeGeneral(S.pose, fs, TH)
       : CM.analyzeClean(S.bar, fs, scale, TH, detected > 0.5 ? S.pose : null);
+    if (fpsNote) S.result.notes.unshift(fpsNote);
     if (detected < 0.8) S.result.notes.unshift(`只有 ${Math.round(detected * 100)}% 的帧识别到人体，结果可能不完整。检查光线、遮挡和人物大小。`);
     if (S.dupes > S.N * 0.03) S.result.notes.unshift(`有 ${S.dupes} 帧读取重复，时间类指标可能偏差。`);
     if (S.fpsReal < 100) S.result.notes.unshift(`按 ${S.fpsReal} fps 计算，时间类指标误差较大。`);
@@ -701,7 +787,7 @@
         if (!p[a] || !p[b]) continue;
         ctx.beginPath(); ctx.moveTo(p[a][0] * s, p[a][1] * s); ctx.lineTo(p[b][0] * s, p[b][1] * s); ctx.stroke();
       }
-      ctx.fillStyle = "#34C27A";
+      ctx.fillStyle = "#C9A45C";
       for (let j = 11; j < 33; j++) if (p[j]) { ctx.beginPath(); ctx.arc(p[j][0] * s, p[j][1] * s, lw * 1.6, 0, 7); ctx.fill(); }
     }
     if (o.air) {
@@ -733,6 +819,7 @@
 
   const BOARD = {
     sprint: ["contact_time_s", "step_length_m", "speed_mps"],
+    sprintNoContact: ["cadence_spm", "cadence_swing_hz", "n_contacts"],
     clean: ["peak_bar_velocity_mps", "max_bar_height_m", "drop_under_m"],
     general: ["jump_height_cm", "flight_time_s", "landing_knee_min_deg"],
     generalNoJump: ["knee_min_deg", "hip_min_deg", "trunk_lean_max_deg"],
@@ -747,7 +834,7 @@
     const R = S.result;
     const hitMetrics = new Set(S.hits.map(h => h.condition.metric));
     const d = new Date(S.date || Date.now());
-    const [k0, k1, k2] = BOARD[S.action === "general" && R.summary.jump_height_cm == null ? "generalNoJump" : S.action];
+    const [k0, k1, k2] = BOARD[S.action === "general" && R.summary.jump_height_cm == null ? "generalNoJump" : S.action === "sprint" && R.summary.contact_time_s == null && R.summary.cadence_spm != null ? "sprintNoContact" : S.action];
     const cell = k => { const v = R.summary[k]; const [name, unit] = CM.LABELS[k] || [k, ""]; return { v: v == null ? "–" : CM.fmt(v, unit), unit: v == null ? "" : unit, name, hit: hitMetrics.has(k) }; };
     const m0 = cell(k0), m1 = cell(k1), m2 = cell(k2);
     $("board").innerHTML = `<div class="who"><span>${esc(S.athleteName || "")}　${esc(actionLabel(S))}</span><span class="n">${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}</span></div>
@@ -1075,6 +1162,15 @@
     const a = A.cur, C = await computeAthlete(a);
     A.C = C;
     const d = daysTo(a.goalDate);
+    const sp = window.SPORTLIB ? SPORTLIB.byId(a.sport || "sprint") : null;
+    if (sp && sp.id !== "sprint") {
+      $("aBoard").innerHTML = `<div class="who"><span>${esc(a.name)}　${esc(sp.name)}</span><span>${a.goalDate ? a.goalDate.replace(/-/g, "/") : "未设目标日期"}</span></div>
+        <div class="main"><b>${d != null && d >= 0 ? d : "–"}</b><small>天</small></div><div class="lbl">距离目标比赛</div>
+        <div class="sub"><div><b style="font-size:20px">${esc(a.goalText || "未填写目标")}</b><span class="lbl">目标</span></div><div><b style="font-size:20px">${esc(SPORTLIB.GROUPS.find(g => g.id === sp.group).name)}</b><span class="lbl">项群</span></div></div>`;
+      renderAthleteToday();
+      document.querySelectorAll(".tabs button").forEach(b => { b.setAttribute("aria-pressed", b.dataset.pane === A.pane); b.onclick = () => { A.pane = b.dataset.pane; renderPanes(); }; });
+      renderPanes(); return;
+    }
     $("aBoard").innerHTML = `<div class="who"><span>${esc(a.name)}　100 米</span><span>${a.goalDate ? a.goalDate.replace(/-/g, "/") : "未设目标日期"}</span></div>
       <div class="main"><b>${Number.isFinite(a.goalTime) ? a.goalTime.toFixed(2) : "–"}</b><small>s</small></div>
       <div class="lbl">目标成绩</div>
@@ -1191,7 +1287,10 @@
     const w = PL.weeks[A.week];
     const phaseColor = { gp: "var(--ph1)", sp: "var(--ph2)", cp: "var(--ph3)", taper: "var(--ph4)" };
     const t = new Date(todayStr());
+    const G = PL.group;
     $("p-plan").innerHTML = `
+      ${G ? `<div class="ins"><div class="ar">${esc(G.name)}</div><h4>训练重点</h4><ul>${G.priorities.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+        <details><summary>项群特点、测试指标与伤病预防</summary><p>${esc(G.traits)}</p><p><b>测试：</b>${G.tests.map(esc).join("；")}</p><p><b>预防：</b>${G.prehab.map(esc).join("；")}</p></details></div>` : ""}
       <h3 class="sec">${PL.total} 周计划</h3>
       <div class="weeks">${PL.weeks.map((x, i) => `<button class="wk ${x.phase} ${x.deload ? "deload" : ""} ${i === now ? "now" : ""}" data-i="${i}" aria-pressed="${i === A.week}">${i + 1}${x.test ? `<span class="t">测</span>` : ""}</button>`).join("")}</div>
       <div class="phases">${PL.phases.map(p => `<span><i style="background:${phaseColor[p.key]}"></i>${p.name} ${p.weeks} 周</span>`).join("")}<span>斜纹 = 调整周　测 = 测试</span></div>
@@ -1214,14 +1313,16 @@
       <h3 class="sec">基本信息</h3>
       <div class="group form">
         <div class="row"><label>姓名</label><input data-f="name" value="${esc(a.name)}"></div>
+        <div class="row"><label>项目</label><select data-f="sport">${(window.SPORTLIB ? SPORTLIB.SPORTS : []).map(s => `<option value="${s.id}" ${(a.sport || "sprint") === s.id ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select></div>
         <div class="row"><label>性别</label><select data-f="sex"><option ${a.sex !== "女" ? "selected" : ""}>男</option><option ${a.sex === "女" ? "selected" : ""}>女</option></select></div>
         <div class="row"><label>身高</label><input class="n" type="number" inputmode="decimal" data-f="height_cm" value="${a.height_cm ?? ""}"><span class="unit">cm</span></div>
         <div class="row"><label>体重</label><input class="n" type="number" inputmode="decimal" data-f="weight_kg" value="${a.weight_kg ?? ""}"><span class="unit">kg</span></div>
       </div>
       <h3 class="sec">成绩与目标</h3>
       <div class="group form">
-        <div class="row"><label>100 米最好成绩</label><input class="n" type="number" inputmode="decimal" step="0.01" data-f="pb" value="${a.pb ?? ""}"><span class="unit">s</span></div>
-        <div class="row"><label>目标成绩</label><input class="n" type="number" inputmode="decimal" step="0.01" data-f="goalTime" value="${a.goalTime ?? ""}"><span class="unit">s</span></div>
+        ${(a.sport || "sprint") !== "sprint" ? `<div class="row"><label>目标</label><input data-f="goalText" placeholder="如：省运会进前三" value="${esc(a.goalText || "")}"></div>` : ""}
+        <div class="row" ${(a.sport || "sprint") !== "sprint" ? "hidden" : ""}><label>100 米最好成绩</label><input class="n" type="number" inputmode="decimal" step="0.01" data-f="pb" value="${a.pb ?? ""}"><span class="unit">s</span></div>
+        <div class="row" ${(a.sport || "sprint") !== "sprint" ? "hidden" : ""}><label>目标成绩</label><input class="n" type="number" inputmode="decimal" step="0.01" data-f="goalTime" value="${a.goalTime ?? ""}"><span class="unit">s</span></div>
         <div class="row"><label>目标日期</label><input type="date" data-f="goalDate" value="${a.goalDate || ""}"></div>
         <div class="row"><label>每周训练次数</label><select data-f="sessionsPerWeek">${[3, 4, 5, 6].map(n => `<option ${Number(a.sessionsPerWeek || 4) === n ? "selected" : ""}>${n}</option>`).join("")}</select></div>
       </div>
@@ -1244,7 +1345,7 @@
       const f = el.dataset.f, num = ["height_cm", "weight_kg", "pb", "goalTime", "sessionsPerWeek"].includes(f);
       a[f] = num ? (el.value === "" ? undefined : Number(el.value)) : el.value.trim();
       if (f === "name" && !a.name) a.name = "未命名";
-      await saveAthlete(); A.C = await computeAthlete(a); renderBoardOnly(); toast("已保存");
+      await saveAthlete(); A.C = await computeAthlete(a); await renderBoardOnly(); if (f === "sport") { A.pane = "info"; renderPanes(); } toast("已保存");
     });
     P.querySelectorAll("[data-t]").forEach(el => el.onchange = async () => {
       a.targets = Object.assign({}, a.targets || {}, { [el.dataset.t]: Number(el.value) });
@@ -1379,7 +1480,17 @@
     $("sportGroups").querySelectorAll("button").forEach(b => b.onclick = () => { sportGroup = b.dataset.g; renderSports(); });
     const list = SPORTLIB.SPORTS.filter(s => !sportGroup || s.group === sportGroup);
     $("sportGrid").innerHTML = list.map(s => `<button class="sport" data-s="${s.id}">${glyph(s.glyph)}<b>${esc(s.name)}</b><span>${esc(G.find(g => g.id === s.group).name)}　${s.techniques.length} 项技术</span></button>`).join("");
-    $("sportGrid").querySelectorAll(".sport").forEach(b => b.onclick = () => openSport(b.dataset.s));
+    $("sportGrid").querySelectorAll(".sport").forEach(b => { b.onclick = () => openSport(b.dataset.s); sportPhoto(b.dataset.s, b); });
+  }
+  // 项目照片：仓库里的 img/sport-<项目>.jpg，黑白处理；没有就用线条图标
+  const photoCache = {};
+  function sportPhoto(id, el) {
+    if (window.CM_PREVIEW) return;
+    const url = `img/sport-${id}.jpg`;
+    const apply = () => { el.style.backgroundImage = `url("${url}")`; el.classList.add("photo"); el.style.filter = ""; };
+    if (photoCache[id] === true) return apply();
+    if (photoCache[id] === false) return;
+    const img = new Image(); img.onload = () => { photoCache[id] = true; apply(); }; img.onerror = () => { photoCache[id] = false; }; img.src = url;
   }
   function errorRows(er) {
     const row = (k, v) => v && v !== "—" ? `<div class="er"><span>${k}</span><div>${Array.isArray(v) ? v.map(esc).join("<br>") : esc(v)}</div></div>` : "";
@@ -1387,6 +1498,8 @@
   }
   function openSport(id) {
     const s = SPORTLIB.byId(id), g = SPORTLIB.GROUPS.find(x => x.id === s.group);
+    $("sportHead").classList.remove("photo"); $("sportHead").style.backgroundImage = "";
+    sportPhoto(id, $("sportHead"));
     $("sportHead").innerHTML = `<div class="sh-glyph">${glyph(s.glyph, 64)}</div><div><div class="sh-path">${esc(g.parent)}　${esc(g.name)}</div><h2 class="big" style="margin:4px 0">${esc(s.name)}</h2><p class="lead" style="margin:0">${esc(g.desc)}</p></div>`;
     $("sportBody").innerHTML = s.techniques.map(t => `<article class="tech">
       <h3>${esc(t.name)}</h3>
@@ -1416,14 +1529,33 @@
 
   // ---------------- 封面 ----------------
   const HERO = {
-    sprint: { title: "短跑", line: "看清 0.1 秒里的每一次触地", go: "分析一段短跑视频", action: "sprint" },
-    lift: { title: "高翻 / 抓举", line: "看清杠铃走过的每一厘米", go: "分析一段举重视频", action: "clean" },
+    sprint: { title: "短跑", eyebrow: "Sprint", line: "看清 0.1 秒里的每一次触地", go: "分析一段短跑视频", action: "sprint" },
+    lift: { title: "高翻 / 抓举", eyebrow: "Olympic Lifting", line: "看清杠铃走过的每一厘米", go: "分析一段举重视频", action: "clean" },
   };
-  let cover = null;
+  let cover = null, heroUrl = null;
+  // 封面照片：你上传的照片（存在手机里）→ 仓库里的 img/hero-*.jpg → 画出来的场景
+  async function loadHeroPhoto(w) {
+    const el = $("heroPhoto"); el.classList.remove("on");
+    let url = null;
+    try { const rec = await dbGet("files", "hero_" + w); if (rec && rec.blob) { if (heroUrl) URL.revokeObjectURL(heroUrl); heroUrl = url = URL.createObjectURL(rec.blob); } } catch (e) { /* 忽略 */ }
+    if (!url && !window.CM_PREVIEW) url = `img/hero-${w}.jpg`;
+    if (!url) return;
+    const img = new Image();
+    img.onload = () => { if ((localStorage.getItem("cm_world") || "sprint") === w) { el.style.backgroundImage = `url("${url}")`; el.classList.add("on"); } };
+    img.src = url;
+  }
+  $("heroFile").onchange = async e => {
+    const f = e.target.files[0]; e.target.value = "";
+    if (!f) return;
+    const w = localStorage.getItem("cm_world") || "sprint";
+    await dbPut("files", { id: "hero_" + w, blob: f, saved: new Date().toISOString() });
+    toast("封面照片已更换"); loadHeroPhoto(w);
+  };
   function setWorld(w) {
     const H = HERO[w] || HERO.sprint;
     document.querySelectorAll(".worlds button").forEach(b => b.setAttribute("aria-pressed", b.dataset.w === w));
-    $("heroTitle").textContent = H.title; $("heroLine").textContent = H.line;
+    $("heroTitle").textContent = H.title; $("heroLine").textContent = H.line; $("heroEyebrow").textContent = H.eyebrow;
+    loadHeroPhoto(w);
     $("heroGo").textContent = H.go; $("heroGo").dataset.action = H.action;
     if (cover) cover.setWorld(w);
     try { localStorage.setItem("cm_world", w); } catch (e) { /* 忽略 */ }
