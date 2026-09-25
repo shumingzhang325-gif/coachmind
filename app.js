@@ -342,7 +342,7 @@
     $("roiRow").hidden = !pick || !S.target;
     if (pick) {
       $("calibTitle").textContent = "选择运动员";
-      $("calibHint").textContent = S.target ? "金色框会跟着这个人走，只分析框里的画面。人很小或画面里有其他人时，这一步能明显提高识别率。框要能装下整个人，可以用下面的滑块调大小。" : "点一下要分析的运动员。画面里只有他一个人、而且人比较大时，也可以跳过。";
+      if (!S.target) $("calibHint").textContent = "点一下要分析的运动员（点在腰部附近）。App 会自动找到他并调好框的大小，之后金色框会一直跟着他。";
       $("rangeControls").hidden = true; $("calibControls").hidden = false;
       $("skipCalib").hidden = false; $("skipCalib").textContent = S.target ? "不用框，分析整个画面" : "跳过，分析整个画面";
       $("undoPt").textContent = "重新选";
@@ -378,12 +378,52 @@
   cc.addEventListener("pointerdown", e => {
     const b = cc.getBoundingClientRect();
     const p = [(e.clientX - b.left) * S.W / b.width, (e.clientY - b.top) * S.H / b.height];
-    if (S.phase === "pick") { S.target = p; drawCalib(); updateCalibUI(); return; }
+    if (S.phase === "pick") { S.target = p; drawCalib(); updateCalibUI(); autoFitTarget(p); return; }
     if (S.phase !== "calib") return;
     if (S.calibPts.length >= 2) S.calibPts = [];
     S.calibPts.push(p);
     drawCalib(); updateCalibUI();
   });
+  // 点选后自动适配框：从很小到整个画面逐级尝试，取“点击位置附近确实识别到人”的最小框
+  async function autoFitTarget(p) {
+    const token = (S.fitToken = (S.fitToken || 0) + 1);
+    $("calibHint").textContent = "正在寻找运动员…（第一次需要加载识别程序）";
+    let lm;
+    try { lm = await getLandmarker(() => {}); } catch (e) { $("calibHint").textContent = "识别程序还没准备好，先按默认框分析；也可以用滑块手动调整框的大小。"; return; }
+    if (token !== S.fitToken) return;
+    const minSide = Math.min(S.W, S.H), kv = S.vw / S.W, CROP = 512;
+    const rc = document.createElement("canvas"); rc.width = rc.height = CROP; const rctx = rc.getContext("2d");
+    const imageMode = typeof lm.detect === "function" && typeof lm.setOptions === "function";
+    if (imageMode) { try { await lm.setOptions({ runningMode: "IMAGE" }); } catch (e) { /* 忽略 */ } }
+    let found = null;
+    try {
+      for (const frac of [0.06, 0.09, 0.13, 0.18, 0.25, 0.35, 0.5, 0.75, 1.0]) {
+        const side = Math.min(frac * minSide, S.W, S.H);
+        const sx = Math.max(0, Math.min(S.W - side, p[0] - side / 2)), sy = Math.max(0, Math.min(S.H - side, p[1] - side / 2));
+        rctx.drawImage(hiddenVideo, sx * kv, sy * kv, side * kv, side * kv, 0, 0, CROP, CROP);
+        let r;
+        if (imageMode) r = lm.detect(rc);
+        else { lmClock += 1000; r = lm.detectForVideo(rc, lmClock); }
+        for (const l of (r.landmarks || [])) {
+          const f = l.map(q => [sx + q.x * side, sy + q.y * side]);
+          const hx = (f[23][0] + f[24][0]) / 2, hy = (f[23][1] + f[24][1]) / 2;
+          const ys = f.map(q => q[1]), hgt = Math.max(...ys) - Math.min(...ys);
+          if (Math.hypot(hx - p[0], hy - p[1]) < Math.max(0.6 * side, hgt) && hgt > 0.2 * side) { found = { hx, hy, hgt }; break; }
+        }
+        if (found) break;
+      }
+    } finally { if (imageMode) { try { await lm.setOptions({ runningMode: "VIDEO" }); } catch (e) { /* 忽略 */ } } }
+    if (token !== S.fitToken || S.phase !== "pick") return;
+    if (found) {
+      S.target = [found.hx, found.hy];
+      S.roiFrac = Math.max(0.06, Math.min(1, 2.4 * found.hgt / minSide));
+      $("roiSize").value = Math.round(S.roiFrac * 100);
+      drawCalib(); updateCalibUI();
+      $("calibHint").textContent = `已找到运动员（画面中约 ${Math.round(found.hgt)} 像素高），框已自动调好。`;
+    } else {
+      $("calibHint").textContent = "在点的位置没找到人。请点在运动员身体上（腰部附近），或拖动滑块把框调小后再点一次。";
+    }
+  }
   $("undoPt").onclick = () => { if (S.phase === "pick") { S.target = null; } else S.calibPts.pop(); drawCalib(); updateCalibUI(); };
   $("skipCalib").onclick = async () => {
     if (S.phase === "pick") { S.target = null; if (S.action === "general") { runAnalysis(); return; } S.phase = "calib"; S.calibPts = []; await enterCalib(); return; }
@@ -398,7 +438,7 @@
   };
 
   // ---------------- 姿态模型 ----------------
-  let landmarkerP = null, loadLog = [];
+  let landmarkerP = null, loadLog = [], lmClock = 0;
   const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + "超时")), ms))]);
   const stageErr = stage => Object.assign(new Error(stage), { stage });
   const MODEL_MIN_BYTES = 1_000_000;
@@ -659,7 +699,8 @@
     $("procStage").hidden = false;
     const N = Math.max(2, Math.round((S.end - S.start) * S.fpsFile));
     const pose = new Array(N).fill(null), bar = S.action === "clean" ? new Array(N).fill([NaN, NaN]) : null;
-    let tracker = null, lastTs = -1, lastMT = null, dupes = 0;
+    let tracker = null, lastMT = null, dupes = 0;
+    const runBase = lmClock + 1000;
     const t0 = performance.now();
     // 跟踪框：裁剪运动员周围区域放大到 512 像素再识别
     const CROP = 512, rc = document.createElement("canvas"); rc.width = rc.height = CROP;
@@ -683,7 +724,7 @@
       // 数“明显变化”的像素：少于 4 个就算和上一帧完全相同（小目标移动也能被察觉）
       if (prevSig) { let changed = 0; for (let k = 0; k < sd.length && changed < 4; k += 4) if (Math.abs(sd[k] - prevSig[k]) > 10 || Math.abs(sd[k + 1] - prevSig[k + 1]) > 10 || Math.abs(sd[k + 2] - prevSig[k + 2]) > 10) changed++; if (changed < 4) sameFrames++; }
       prevSig = sd;
-      let ts = Math.round(i * 1000 / S.fpsReal); if (ts <= lastTs) ts = lastTs + 1; lastTs = ts;
+      let ts = Math.max(lmClock + 1, runBase + Math.round(i * 1000 / S.fpsReal)); lmClock = ts;
       try {
         let cands = [];
         if (S.target) {
@@ -746,6 +787,7 @@
     }
     S.processing = false;
     S.pose = pose; S.bar = bar; S.N = N; S.dupes = dupes; S.sameFrames = sameFrames;
+    S.detectedRatio = pose.filter(Boolean).length / Math.max(1, N);
     const detected = pose.filter(Boolean).length / N;
     computeResult(detected);
     S.saved = false; S.savedId = null; S.verdicts = {}; S.coachNote = "";
@@ -863,6 +905,12 @@
     }
     renderStrip();
     renderCompare(); renderDebug(); setupMarking(); renderChecklist();
+    if (S.detectedRatio != null && S.detectedRatio < 0.15 && S.file) {
+      const box = document.createElement("div"); box.className = "msg"; box.style.cssText = "border-color:rgba(201,164,92,.5);background:rgba(201,164,92,.08)";
+      box.innerHTML = `<b style="color:var(--gold)">几乎没识别到人（${Math.round(S.detectedRatio * 100)}% 的帧）</b><br>人在画面里太小或有其他人时，请回到上一步点一下运动员，App 会自动把框调到合适大小。<button class="btn go" id="rePick" style="width:100%;margin-top:12px">重新选择运动员</button>`;
+      $("resNotes").prepend(box);
+      $("rePick").onclick = async () => { S.phase = "pick"; S.target = null; show("calib"); await enterCalib(); };
+    }
     $("toPlanBtn").hidden = !S.hits.length || !S.athleteId;
   }
 
@@ -1532,23 +1580,47 @@
     sprint: { title: "SPRINT", eyebrow: "短跑", line: "看清 0.1 秒里的每一次触地", go: "分析一段短跑视频", action: "sprint" },
     lift: { title: "POWER", eyebrow: "高翻　抓举", line: "看清杠铃走过的每一厘米", go: "分析一段举重视频", action: "clean" },
   };
-  let cover = null, heroUrl = null;
+  let cover = null;
   function setWorld(w) {
     const H = HERO[w] || HERO.sprint;
     document.querySelectorAll(".worlds button").forEach(b => b.setAttribute("aria-pressed", b.dataset.w === w));
     $("heroTitle").textContent = H.title; $("heroLine").textContent = H.line; $("heroEyebrow").textContent = H.eyebrow;
+    if (typeof loadHeroPhoto === "function") loadHeroPhoto(w);
     $("heroGo").textContent = H.go; $("heroGo").dataset.action = H.action;
     if (cover) cover.setWorld(w);
     try { localStorage.setItem("cm_world", w); } catch (e) { /* 忽略 */ }
   }
-  if (window.Cover) {
+  // 开场（本次打开只播一次，点一下可跳过）
+  (function intro() {
+    const el = $("intro"), hero = $("hero");
     let seen = false; try { seen = sessionStorage.getItem("cm_intro") === "1"; sessionStorage.setItem("cm_intro", "1"); } catch (e) { /* 忽略 */ }
     const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (seen || reduce) $("hero").classList.remove("intro");
-    cover = new Cover($("heroCanvas"), { world: localStorage.getItem("cm_world") || "sprint", intro: !seen && !reduce, onIntroDone: () => $("hero").classList.remove("intro") });
-    cover.start();
-    setTimeout(() => $("hero").classList.remove("intro"), 4200);
-  } else $("hero").classList.remove("intro");
+    const end = () => { el.classList.add("done"); hero.classList.remove("intro"); };
+    if (seen || reduce) { end(); return; }
+    el.addEventListener("click", end);
+    el.addEventListener("animationend", e => { if (e.animationName === "i-out") end(); });
+    setTimeout(() => hero.classList.remove("intro"), 2700);
+    setTimeout(end, 3600);
+  })();
+  if (window.Cover) { cover = new Cover($("heroCanvas"), { world: localStorage.getItem("cm_world") || "sprint" }); cover.start(); }
+  // 封面照片：你选的照片（存在手机里）→ 仓库里的 img/hero-*.jpg
+  let heroUrl = null;
+  async function loadHeroPhoto(w) {
+    const el = $("heroPhoto"); el.classList.remove("on");
+    let url = null;
+    try { const rec = await dbGet("files", "hero_" + w); if (rec && rec.blob) { if (heroUrl) URL.revokeObjectURL(heroUrl); heroUrl = url = URL.createObjectURL(rec.blob); } } catch (e) { /* 忽略 */ }
+    if (!url && !window.CM_PREVIEW) url = `img/hero-${w}.jpg`;
+    if (!url) return;
+    const img = new Image();
+    img.onload = () => { if ((localStorage.getItem("cm_world") || "sprint") === w) { el.style.backgroundImage = `url("${url}")`; el.classList.add("on"); } };
+    img.src = url;
+  }
+  $("heroFile").onchange = async e => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    const w = localStorage.getItem("cm_world") || "sprint";
+    await dbPut("files", { id: "hero_" + w, blob: f, saved: new Date().toISOString() });
+    toast("封面照片已更换"); loadHeroPhoto(w);
+  };
   document.querySelectorAll(".worlds button").forEach(b => b.onclick = () => setWorld(b.dataset.w));
   $("heroGo").onclick = () => startNew($("heroGo").dataset.action);
   setWorld(localStorage.getItem("cm_world") || "sprint");
