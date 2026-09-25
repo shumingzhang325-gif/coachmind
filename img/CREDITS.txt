@@ -1,0 +1,56 @@
+知练 CoachMind — Unsplash photo credits
+All photos used under the Unsplash License: https://unsplash.com/license
+(No Unsplash+ / paid photos.)
+
+hero-sprint.jpg
+  Photographer: see Unsplash page for photo-1552674605-db6ffd4facb5
+  Source: https://unsplash.com/photos/photo-1552674605-db6ffd4facb5
+  CDN: https://images.unsplash.com/photo-1552674605-db6ffd4facb5
+
+hero-lift.jpg
+  Photographer: see Unsplash page (Rogue barbell squat / deadlift setup)
+  Source: https://images.unsplash.com/photo-1542751110-97427bbecf20
+
+sport-sprint.jpg
+  Photographer: see Unsplash page for this track sprint still
+  Source: https://images.unsplash.com/photo-1552674605-db6ffd4facb5
+
+sport-longjump.jpg
+  Photographer: see Unsplash (female long jumper mid-air)
+  Source: https://unsplash.com/photos/RWpEFLH86jA
+
+sport-weightlifting.jpg
+  Photographer: see Unsplash (athlete deep squat with orange plates)
+  Source: https://images.unsplash.com/ (file from Unsplash License download)
+
+sport-distance.jpg
+  Photographer: see Unsplash (runners at sunrise / distance pack)
+  Source: https://images.unsplash.com/photo-1513593771513-7b58b6c4af38
+
+sport-gymnastics.jpg
+  Photographer: Naveen Ketterer
+  Source: https://unsplash.com/photos/a-gymnast-balances-in-a-handstand-on-the-beam-EIxQkHx4rWk
+
+sport-diving.jpg
+  Photographer: see Unsplash (underwater freediver silhouette)
+  Source: https://images.unsplash.com/photo-1743656619958-68d85790bdb4
+
+sport-volleyball.jpg
+  Photographer: see Unsplash (beach volleyball spike silhouette at sunset)
+  Source: https://images.unsplash.com/photo-1612872087720-bb876e2e67d1
+
+sport-badminton.jpg
+  Photographer: see Unsplash (indoor jump smash, racket visible)
+  Source: https://images.unsplash.com/photo-1626224583764-f87db24ac4ea
+
+sport-tennis.jpg
+  Photographer: see Unsplash (overhead serve action)
+  Source: Unsplash License JPG bundled with v1.0
+
+sport-basketball.jpg
+  Photographer: see Unsplash (arena dunk, Denver #0 jersey)
+  Source: https://images.unsplash.com/photo-1579487685737-e435a87b2518
+
+sport-football.jpg
+  Photographer: see Unsplash (full-body kick with ball in air)
+  Source: https://images.unsplash.com/photo-1560272564-c83b66b1ad12
