@@ -558,14 +558,73 @@ header.bar .ttl { font-family: var(--serif); letter-spacing: 0.12em; }
 .hero-swap { position: absolute; left: 0; right: 0; bottom: 30px; text-align: center; z-index: 2; font-size: 12px; letter-spacing: 0.12em; color: rgba(238,231,216,0.38); cursor: pointer; }
 .scrollcue { display: none; }
 
+
+/* ================= 杂志封面风格（参考 APEX）：全彩照片、衬线大标题、金色只做点缀 ================= */
+@font-face { font-family: "Cinzel"; src: url("fonts/Cinzel-Regular.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Cormorant Garamond"; src: url("fonts/CormorantGaramond-Regular.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Cormorant Garamond"; font-style: italic; src: url("fonts/CormorantGaramond-Italic.woff2") format("woff2"); font-display: swap; }
+:root {
+  --display: "Cinzel", "Trajan Pro", "Didot", "Bodoni 72", "Songti SC", serif;
+  --editorial: "Cormorant Garamond", "Cormorant", "Baskerville", "Hoefler Text", "Songti SC", Georgia, serif;
+  --ivory: #F2EDE4; --line: #2A2A2A;
+}
+.hero { position: relative; height: auto; min-height: 100svh; max-height: none; margin: -4px calc(-1 * var(--pad)) 40px; padding: 0 28px 64px; border: 0; border-radius: 0; background: #050505; overflow: hidden; display: flex; flex-direction: column; }
+@media (min-width: 700px) { .hero { margin: 0 0 48px; border-radius: 0; padding: 0 56px 72px; } }
+.hero::after { display: none; }
+.hero-photo { display: block !important; position: absolute; inset: 0; background-size: cover; background-position: center 30%; filter: saturate(1.05) contrast(1.05); opacity: 0; transition: opacity 1.2s ease; }
+.hero-photo.on { opacity: 1; }
+.hero-photo.on ~ canvas { opacity: 0 !important; }
+.hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 1; }
+.hero-veil { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.05) 22%, rgba(0,0,0,0) 45%, rgba(0,0,0,0.45) 72%, rgba(5,5,5,0.95) 100%); pointer-events: none; }
+.hero > *:not(.hero-photo):not(canvas):not(.hero-veil) { position: relative; z-index: 2; }
+.mast { padding-top: calc(env(safe-area-inset-top, 0px) + 34px); }
+.mast .brand { display: block; } .mast .brand b { display: block; white-space: nowrap; font-family: var(--serif); font-weight: 700; font-size: 44px; letter-spacing: 0.22em; color: var(--ivory); line-height: 1.1; }
+.mast .brand i { display: block; margin-top: 8px; font-family: var(--editorial); font-style: italic; font-size: 21px; color: rgba(242,237,228,0.82); letter-spacing: 0.02em; }
+.mnav { display: flex; gap: 26px; margin-top: 30px; flex-wrap: wrap; }
+.mnav button, .mnav a { background: none; border: 0; padding: 6px 0; min-height: 44px; font: 500 14px/1 var(--font); letter-spacing: 0.24em; color: rgba(242,237,228,0.78); text-decoration: none; border-bottom: 1.5px solid transparent; cursor: pointer; }
+.mnav button[aria-pressed="true"] { color: var(--gold); border-bottom-color: var(--gold); }
+.feature { text-align: center; margin: 0; padding: 7vh 0 0; }
+.hero .scroll { margin-top: auto; }
+.hero .eyebrow { font-family: var(--font); font-size: 13px; font-weight: 500; letter-spacing: 0.42em; color: var(--gold); margin: 0 0 14px; text-shadow: none; font-style: normal; }
+.feature h1 { font-family: var(--display); font-weight: 400; font-size: clamp(58px, 19vw, 150px); line-height: 0.95; letter-spacing: 0.06em; margin: 0; color: var(--ivory); text-shadow: 0 2px 30px rgba(0,0,0,0.35); }
+.feature .eyebrow, .feature .issue, .mast .brand i, .mnav button, .mnav a { text-shadow: 0 1px 14px rgba(0,0,0,0.55), 0 0 2px rgba(0,0,0,0.35); }
+.feature .issue { font-family: var(--editorial); font-style: italic; font-size: 20px; color: rgba(242,237,228,0.78); margin: 18px 0 0; letter-spacing: 0.06em; }
+.stories { display: grid; gap: 40px; margin: 8px 0 56px; }
+.stories.below .story { padding-top: 18px; border-top: 1px solid var(--line); }
+@media (min-width: 700px) { .stories { grid-template-columns: 1fr 1fr; gap: 48px; } }
+.story h2 { font-family: var(--serif); font-weight: 700; font-size: 26px; letter-spacing: 0.08em; color: var(--ivory); margin: 0 0 10px; }
+.story .italic { font-family: var(--editorial); font-style: italic; font-size: 20px; line-height: 1.5; color: rgba(242,237,228,0.72); margin: 0 0 18px; }
+.btn.line { background: transparent; color: var(--ivory); border: 1px solid rgba(201,164,92,0.75); border-radius: 0; min-height: 52px; padding: 0 30px; letter-spacing: 0.3em; font-weight: 500; box-shadow: none; }
+.btn.line:active { background: rgba(242,237,228,0.08); }
+.story .link { font-size: 14px; letter-spacing: 0.2em; color: var(--ivory); border-bottom: 1px solid rgba(201,164,92,0.75); padding-bottom: 4px; background: none; border-top: 0; border-left: 0; border-right: 0; min-height: 36px; cursor: pointer; }
+.scroll { display: grid; justify-items: center; gap: 10px; margin-top: 44px; }
+.scroll span { font-size: 11px; letter-spacing: 0.5em; text-indent: 0.5em; color: rgba(242,237,228,0.45); }
+.scroll i { width: 1px; height: 34px; background: linear-gradient(rgba(242,237,228,0.5), rgba(242,237,228,0)); }
+.hero-swap { position: absolute !important; right: 24px; bottom: 22px; left: auto; font-size: 11px; letter-spacing: 0.14em; color: rgba(242,237,228,0.35); z-index: 3; }
+.hero.intro .mast, .hero.intro .feature, .hero.intro .scroll { opacity: 0; transform: translateY(10px); }
+.mast, .feature, .stories, .scroll { transition: opacity 1.6s ease, transform 1.6s cubic-bezier(.2,.7,.2,1); }
+.hero.intro .feature { transition-delay: .2s; } .stories { transition-delay: .5s; } .scroll { transition-delay: .8s; }
+.hero-top, .hero-copy, .hero-shade, .scrollcue { display: none !important; }
+
+/* 全局去“土金”：主按钮改象牙白，金色只留细线与小标题 */
+.btn.go { background: var(--ivory); color: #0A0A0B; box-shadow: none; border-radius: 2px; letter-spacing: 0.16em; }
+.btn.go:active { background: #D9D2C5; }
+.btn:not(.go):not(.line) { border-radius: 2px; }
+.chips button[aria-pressed="true"], .verdict button[aria-pressed="true"], .speed button[aria-pressed="true"], .tabs button[aria-pressed="true"], .scale button[aria-pressed="true"], .worlds button[aria-pressed="true"] { background: var(--ivory); border-color: var(--ivory); color: #0A0A0B; }
+.ctrl .play, .toast, .phases-seq i { background: var(--ivory); color: #0A0A0B; }
+.board { background: #0E0E0F; border: 1px solid var(--line); border-radius: 2px; }
+.board .main b, .proc .pct { color: var(--ivory); }
+.progress > div { background: var(--ivory); }
+.group, .sheet, .person, .sport, .tech, .dx, .ins, .today, .grid, .strip, .tablewrap, .radarbox, .axes, table.cmp, .bars, .mark, details.dbg, .filecard, .clear, .err, #checkBox .checks, .day { border-color: var(--line); border-radius: 4px; }
+.pick { border-color: var(--line); background: #101011; } .pick svg { color: var(--ivory); }
+.sechead h2 { font-family: var(--serif); letter-spacing: 0.14em; }
+h3.sec, .tech h3 { letter-spacing: 0.08em; }
+header.bar .ttl { letter-spacing: 0.2em; }
+.msg.ok { background: #111; border-color: var(--line); } .msg.ok b { color: var(--ivory); }
+
 </style>
 </head>
 <body>
-<div id="intro" aria-hidden="true">
-  <div class="i-line"></div>
-  <div class="i-mark">知练</div>
-  <div class="i-sub">COACHMIND</div>
-</div>
 <header class="bar" id="bar">
   <button class="back" id="backBtn" hidden aria-label="返回"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
   <div class="ttl" id="title"></div>
@@ -576,30 +635,37 @@ header.bar .ttl { font-family: var(--serif); letter-spacing: 0.12em; }
 <!-- 首页 -->
 <section class="view on" id="v-home">
   <div class="hero intro" id="hero">
-    <div class="hero-photo" id="heroPhoto" aria-hidden="true"></div>
     <canvas id="heroCanvas" aria-hidden="true"></canvas>
-    <div class="hero-top">
-      <b>知练<em>CoachMind</em></b>
-      <div class="worlds" role="group" aria-label="切换动作">
-        <button data-w="sprint" aria-pressed="true">短跑</button>
-        <button data-w="lift" aria-pressed="false">举重</button>
-      </div>
-    </div>
-    <div class="hero-copy">
-      <p class="kicker" id="heroEyebrow">短跑</p>
+    <div class="hero-veil" aria-hidden="true"></div>
+    <header class="mast">
+      <div class="brand"><b>知练</b><i>The Science of Speed &amp; Power</i></div>
+      <nav class="mnav" aria-label="导航">
+        <button data-w="sprint" aria-pressed="true">短跑</button><button data-w="lift" aria-pressed="false">举重</button><a href="#sportsSec">项目</a><a href="#peopleSec">运动员</a>
+      </nav>
+    </header>
+    <div class="feature">
+      <p class="eyebrow" id="heroEyebrow">第一章　速度</p>
       <h1 id="heroTitle">SPRINT</h1>
-      <p class="tagline" id="heroLine">看清 0.1 秒里的每一次触地</p>
-      <button class="btn go" id="heroGo" data-action="sprint">分析一段短跑视频</button>
+      <p class="issue" id="heroIssue">Chapter I · The Anatomy of Speed</p>
     </div>
-    <label class="hero-swap" for="heroFile">更换封面照片</label><input type="file" id="heroFile" accept="image/*" hidden>
-    <div class="scrollcue" aria-hidden="true"></div>
+    <div class="scroll" aria-hidden="true"><span>SCROLL</span><i></i></div>
   </div>
 
-  <div class="sechead"><h2>项目技术库</h2></div>
+    <div class="stories below">
+      <section class="story">
+        <p class="eyebrow">视频分析</p>
+        <h2 id="heroStory">看清每一次触地</h2>
+        <p class="italic" id="heroLine">Where speed meets science.</p>
+        <button class="btn line" id="heroGo" data-action="sprint">分析一段短跑视频</button>
+      </section>
+      <section class="story" id="heroEvent"></section>
+    </div>
+
+  <div class="sechead" id="sportsSec"><h2>项目技术库</h2></div>
   <div class="chips" id="sportGroups"></div>
   <div class="sportgrid" id="sportGrid"></div>
 
-  <div class="sechead"><h2>运动员</h2></div>
+  <div class="sechead" id="peopleSec"><h2>运动员</h2></div>
   <div class="people" id="people"></div>
 
   <div class="sechead"><h2>训练记录</h2><button class="link" id="exportCsv">导出表格</button></div>
