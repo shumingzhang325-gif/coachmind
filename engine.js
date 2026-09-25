@@ -564,6 +564,40 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
   }
 
   // 由触地列表（自动识别或教练手动标记）计算全部指标
+
+  // 触地识别（不受镜头移动影响）：支撑脚处在“局部最低点”且竖直方向几乎不动。
+  // 镜头左右跟拍、人斜着跑导致地面线在画面里变化，这个方法都不受影响。
+  function detectContactsVertical(pose, fs, c) {
+    const n = pose.length, contacts = [];
+    const win = Math.max(3, Math.round(0.35 * fs));
+    for (const side of ["left", "right"]) {
+      const S = SIDES[side];
+      const lowY = pose.map(f => f ? Math.max(f[S.heel][1], f[S.foot][1], f[S.ankle][1]) : NaN);
+      const y = lowpass(lowY, fs, Math.min(c.foot_filter_hz, fs / 4));
+      const vy = derivative(y, fs).map(Math.abs);
+      const legLen = median(pose.map(f => f ? Math.hypot(f[S.hip][0] - f[S.ankle][0], f[S.hip][1] - f[S.ankle][1]) : NaN));
+      if (!isF(legLen) || legLen <= 0) continue;
+      const g = y.map((_, i) => { let m = -Infinity; for (let k = Math.max(0, i - win); k <= Math.min(n - 1, i + win); k++) if (isF(y[k]) && y[k] > m) m = y[k]; return m; });
+      const band = 0.07 * legLen, vmax = 1.6 * legLen;               // 离局部地面 7% 腿长以内、竖直速度小于 1.6 腿长/秒
+      const mask = y.map((v, i) => isF(v) && v > g[i] - band && vy[i] < vmax);
+      const minLen = Math.max(2, Math.round(0.05 * fs));
+      for (const [td, to] of segments(mask, minLen, Math.round(0.02 * fs))) {
+        if (td === 0 || to === n - 1) continue;
+        const dur = (to - td + 1) / fs;
+        if (dur > 0.45) continue;                                      // 太长：站立、起跑器预备姿势，不算跑步触地
+        contacts.push({ side, td, to });
+      }
+    }
+    contacts.sort((a, b) => a.td - b.td);
+    return contacts;
+  }
+  // 结果可信度：触地时间在合理范围、左右脚交替出现的次数
+  function contactScore(cs, fs) {
+    let s = 0;
+    cs.forEach((ct, k) => { const d = (ct.to - ct.td + 1) / fs; if (d >= 0.06 && d <= 0.35) s += 1; if (k && cs[k - 1].side !== ct.side) s += 0.5; });
+    return s;
+  }
+
   function sprintFromContacts(pose, fs, TH, scale, contacts, base) {
     base = base || sprintBase(pose, fs, TH.sprint);
     const { hx, runSpeed, dir } = base;
@@ -630,12 +664,18 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     const fixed = unswapLegs(pose);
     const base = sprintBase(fixed.pose, fs, TH.sprint);
     const det = detectSprintContacts(fixed.pose, fs, TH.sprint, base);
-    const r = sprintFromContacts(fixed.pose, fs, TH, scale, det.contacts, base);
+    const vcs = detectContactsVertical(fixed.pose, fs, TH.sprint);
+    // 两种方法都跑，取更可信的：固定机位时水平法更精确；跟拍、斜向时竖直法更稳
+    const useV = contactScore(vcs, fs) > contactScore(det.contacts, fs) + 0.5;
+    const r = sprintFromContacts(fixed.pose, fs, TH, scale, useV ? vcs : det.contacts, base);
+    r.contactMethod = useV ? "vertical" : "horizontal";
+    if (useV) r.notes.unshift("检测到镜头在移动或人斜向跑动，已改用“最低点静止”方法识别触地；步长和着地距离在跟拍镜头下不可靠，已隐藏。");
+    if (useV) { for (const k of ["step_length_m", "speed_mps", "touchdown_distance_m", "hip_speed_mps"]) delete r.summary[k]; r.steps.forEach(s => { delete s.step_length_m; delete s.speed_mps; delete s.touchdown_distance_m; }); }
     r.debug = det.debug; r.legSwaps = fixed.swaps; r.pose = fixed.pose;
     const cd = cadenceFromLegSwing(fixed.pose, fs, TH.sprint);
     if (cd) { r.summary.cadence_swing_hz = cd.hz; r.summary.cadence_spm = Math.round(cd.hz * 60); r.cadenceFrames = cd.frames; }
     if (r.steps.length < 2 && cd) r.notes.unshift(`脚的落点看不清，已改用摆腿周期测出步频 ${cd.hz.toFixed(2)} 步/秒（${Math.round(cd.hz * 60)} 步/分钟）。`);
-    if (r.steps.length < 2) r.notes.unshift("自动识别到的触地少于 2 次。可以在回放里逐帧找到着地和离地，用“手动标记”补上；也可以展开“识别过程”看原因。");
+    if (r.steps.length < 2) r.notes.unshift("自动识别到的触地少于 2 次。常见原因：人太小（请用“选择运动员”框住他）、脚被遮挡、视频帧率太低。");
     return r;
   }
 
@@ -843,6 +883,6 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
   function r3(v) { return Math.round(v * 1000) / 1000; } function r4(v) { return Math.round(v * 10000) / 10000; }
 
   const API = { median, percentile, lowpass, derivative, angle, segments, fillNaN, SIDES, SKELETON,
-    analyzeSprint, analyzeGeneral, cadenceFromLegSwing, sprintFromContacts, sprintBase, unswapLegs, analyzeClean, PlateTracker, matchCards, LABELS, fmt, PLATE_DIAMETER_M: 0.45 };
+    analyzeSprint, analyzeGeneral, cadenceFromLegSwing, detectContactsVertical, sprintFromContacts, sprintBase, unswapLegs, analyzeClean, PlateTracker, matchCards, LABELS, fmt, PLATE_DIAMETER_M: 0.45 };
   if (typeof module !== "undefined" && module.exports) module.exports = API; else root.CM = API;
 })(typeof self !== "undefined" ? self : this);

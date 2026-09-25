@@ -1,12 +1,11 @@
-/* 知练封面：连续摄影（chronophotography）
-   两个场地：夜场跑道（短跑）、举重台（高翻）。全部由 Canvas 实时绘制，不依赖任何图片或外部库。 */
+/* 知练封面：粒子运动员（黑色舞台 · 金色粒子 · 长曝光拖影）
+   开场：粒子从黑暗中聚成“知练”，再流动成奔跑的运动员。全部实时绘制，不依赖图片与外部库。 */
 (function (root) {
   "use strict";
   const TAU = Math.PI * 2;
   const lerp = (a, b, t) => a + (b - a) * t;
   const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-
   // ---------------- 奔跑步态（正向运动学，单位 = 身高） ----------------
   const SEG = { thigh: 0.245, shank: 0.246, foot: 0.09, trunk: 0.30, neck: 0.07, head: 0.06, upper: 0.186, fore: 0.16 };
   function legAngles(p) {                            // p：步态相位 0–1；0 = 触地
@@ -84,232 +83,145 @@
   }
   const LIFT_BONES = [["toe", "ank"], ["heel", "ank"], ["heel", "toe"], ["ank", "knee"], ["knee", "hip"], ["hip", "sh"], ["sh", "head"], ["sh", "elb"], ["elb", "bar"]];
 
-  // ---------------- 工具 ----------------
-  function grain(w, h, alpha) {
-    const c = document.createElement("canvas"); c.width = w; c.height = h;
-    const g = c.getContext("2d"), img = g.createImageData(w, h);
-    for (let i = 0; i < img.data.length; i += 4) { const v = Math.random() * 255; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = alpha * Math.random(); }
-    g.putImageData(img, 0, 0); return c;
+
+  // ---------------- 身体模型：由关节生成粒子目标点 ----------------
+  // [起点, 终点, 半径(身高单位), 亮度]
+  const RUN_BODY = [["sh", "hip", 0.062, 1], ["hip", "nearKnee", 0.048, 1], ["nearKnee", "nearAnk", 0.034, 1], ["nearAnk", "nearToe", 0.018, 1],
+    ["hip", "farKnee", 0.046, 0.55], ["farKnee", "farAnk", 0.032, 0.55], ["farAnk", "farToe", 0.017, 0.55],
+    ["sh", "nearElb", 0.03, 1], ["nearElb", "nearWri", 0.024, 1], ["sh", "farElb", 0.028, 0.55], ["farElb", "farWri", 0.022, 0.55], ["sh", "head", 0.02, 1]];
+  const LIFT_BODY = [["sh", "hip", 0.064, 1], ["hip", "knee", 0.05, 1], ["knee", "ank", 0.036, 1], ["heel", "toe", 0.018, 1], ["sh", "elb", 0.03, 1], ["elb", "bar", 0.025, 1], ["sh", "head", 0.02, 1]];
+  let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  function sprite(r, core, glow) {
+    const c = document.createElement("canvas"); c.width = c.height = r * 2;
+    const g = c.getContext("2d"), gr = g.createRadialGradient(r, r, 0, r, r, r);
+    gr.addColorStop(0, core); gr.addColorStop(0.35, glow); gr.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = gr; g.fillRect(0, 0, r * 2, r * 2); return c;
   }
-  let seed = 11; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  function textPoints(text, w, h) {
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const g = c.getContext("2d");
+    const fs = Math.min(w * 0.36, h * 0.3);
+    g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.font = `700 ${fs}px "Songti SC","STSong","Noto Serif SC",serif`;
+    g.fillText(text, w / 2, h * 0.46);
+    const d = g.getImageData(0, 0, w, h).data, pts = [], step = Math.max(2, Math.round(fs / 70));
+    for (let y = 0; y < h; y += step) for (let x = 0; x < w; x += step) if (d[(y * w + x) * 4 + 3] > 128) pts.push([x, y]);
+    return pts;
+  }
 
   class Cover {
     constructor(canvas, opts = {}) {
       this.c = canvas; this.g = canvas.getContext("2d");
       this.world = opts.world || "sprint";
       this.reduced = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
-      this.running = false; this.visible = true; this.t0 = performance.now(); this.fade = 1;
-      this.noise = grain(160, 160, 26);
-      this.crowd = [...Array(260)].map(() => ({ x: rnd(), y: rnd(), r: 0.4 + rnd() * 1.1, tw: rnd() * TAU }));
-      this.dust = [...Array(90)].map(() => ({ x: rnd(), y: rnd(), v: 0.004 + rnd() * 0.012, r: 0.5 + rnd() * 1.6, d: rnd() * TAU }));
+      this.intro = !!opts.intro && !this.reduced;
+      this.onIntroDone = opts.onIntroDone || (() => {});
+      this.visible = true; this.running = false;
+      this.dotGold = sprite(12, "rgba(255,244,214,1)", "rgba(228,201,139,0.55)");
+      this.dotDim = sprite(10, "rgba(228,201,139,0.9)", "rgba(201,164,92,0.25)");
       this.resize();
       addEventListener("resize", () => this.resize());
       document.addEventListener("visibilitychange", () => this.kick());
       if ("IntersectionObserver" in window) new IntersectionObserver(es => { this.visible = es[0].isIntersecting; this.kick(); }).observe(canvas);
+      this.t0 = performance.now();
     }
-    setWorld(w) { if (w === this.world) return; this.world = w; this.t0 = performance.now(); this.fade = 0; this.trail = null; if (this.reduced) this.frame(this.t0); }
     resize() {
       const dpr = Math.min(2, window.devicePixelRatio || 1), r = this.c.getBoundingClientRect();
-      this.w = Math.max(1, r.width); this.h = Math.max(1, r.height);
+      this.dpr = dpr; this.w = Math.max(1, r.width); this.h = Math.max(1, r.height);
       this.c.width = Math.round(this.w * dpr); this.c.height = Math.round(this.h * dpr);
       this.g.setTransform(dpr, 0, 0, dpr, 0, 0);
-      this.frame(performance.now());
+      const count = Math.round(clamp(this.w * this.h / 120, 1100, 3200));
+      if (!this.ps || this.ps.length !== count) this.build(count);
+      this.textPts = textPoints("知练", Math.round(this.w), Math.round(this.h));
+      this.dust = [...Array(90)].map(() => ({ x: rnd() * this.w, y: rnd() * this.h, s: 0.3 + rnd() * 1.2, v: 0.2 + rnd() * 0.8 }));
+      this.g.fillStyle = "#050506"; this.g.fillRect(0, 0, this.w, this.h);
+      if (this.reduced) this.frame(performance.now());
     }
+    build(count) {
+      this.ps = [...Array(count)].map((_, i) => ({ k: rnd(), u: rnd(), a: rnd() * TAU, r: Math.sqrt(rnd()), x: rnd() * this.w, y: rnd() * this.h,
+        tw: rnd() * TAU, s: 0.5 + rnd() * 0.9, delay: rnd() * 0.5, ti: Math.floor(rnd() * 1e6) }));
+    }
+    setWorld(w) { if (w !== this.world) { this.world = w; this.morphT = performance.now(); } }
     start() { this.running = true; this.kick(); }
     kick() {
-      if (this.reduced) { this.frame(performance.now(), true); return; }
+      if (this.reduced) { this.frame(performance.now()); return; }
       if (this.raf || !this.running || document.hidden || !this.visible) return;
       const loop = ts => { this.raf = null; if (!this.running || document.hidden || !this.visible) return; this.frame(ts); this.raf = requestAnimationFrame(loop); };
       this.raf = requestAnimationFrame(loop);
     }
-    frame(ts, still) {
-      const t = (ts - this.t0) / 1000;
-      this.fade = Math.min(1, this.fade + 0.06);
-      if (this.world === "sprint") this.sprint(still ? 1.35 : t, !!still);
-      else this.lift(still ? 2.0 : t, !!still);
-      if (this.fade < 1) { this.g.fillStyle = `rgba(4,8,12,${1 - this.fade})`; this.g.fillRect(0, 0, this.w, this.h); }
+    // 当前身体的目标点
+    bodyTargets(t) {
+      const W = this.w, H = this.h;
+      const sprint = this.world === "sprint";
+      const size = Math.min(H * (sprint ? 0.36 : 0.38), W * 0.66);
+      const ox = W * 0.5, oy = H * (sprint ? 0.55 : 0.57);
+      const P = sprint ? runnerPose((t * 1.05) % 1) : liftPose(t % LIFT_T);
+      const segs = sprint ? RUN_BODY : LIFT_BODY;
+      const map = p => [ox + (sprint ? -0.05 : -0.04) * size + p[0] * size, oy - p[1] * size];
+      return { P, segs, map, size, head: map(P.head), bar: sprint ? null : map(P.bar), ground: oy };
     }
-
-    // ---------- 共用：骨骼 ----------
-    bones(P, list, map, alpha, width, joints) {
-      const g = this.g;
-      g.lineCap = "round"; g.lineJoin = "round";
-      g.strokeStyle = `rgba(244,247,250,${alpha})`; g.lineWidth = width;
-      g.beginPath();
-      for (const [a, b] of list) { const A = map(P[a]), B = map(P[b]); g.moveTo(A[0], A[1]); g.lineTo(B[0], B[1]); }
-      g.stroke();
-      if (joints) {
-        g.fillStyle = `rgba(201,164,92,${alpha})`;
-        for (const k of Object.keys(P)) { if (!Array.isArray(P[k])) continue; const A = map(P[k]); g.beginPath(); g.arc(A[0], A[1], width * 0.95, 0, TAU); g.fill(); }
+    frame(ts) {
+      const g = this.g, W = this.w, H = this.h, t = (ts - this.t0) / 1000;
+      // 长曝光拖影：不完全清屏
+      g.globalCompositeOperation = "source-over";
+      g.fillStyle = this.reduced ? "#050506" : "rgba(5,5,6,0.34)"; g.fillRect(0, 0, W, H);
+      const B = this.bodyTargets(this.reduced ? 0.3 : t);
+      // 舞台：地面光带 + 分道线 / 举重台
+      const gy = B.ground;
+      const halo = g.createRadialGradient(W / 2, gy, 0, W / 2, gy, W * 0.6);
+      halo.addColorStop(0, "rgba(201,164,92,0.10)"); halo.addColorStop(1, "rgba(201,164,92,0)");
+      g.fillStyle = halo; g.fillRect(0, gy - H * 0.25, W, H * 0.5);
+      g.strokeStyle = "rgba(201,164,92,0.28)"; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(W * 0.08, gy + 1); g.lineTo(W * 0.92, gy + 1); g.stroke();
+      if (this.world === "sprint") {
+        g.strokeStyle = "rgba(201,164,92,0.10)";
+        for (let k = 1; k <= 3; k++) { const yy = gy + k * k * 7; g.beginPath(); g.moveTo(0, yy); g.lineTo(W, yy); g.stroke(); }
       }
-    }
-    headCircle(P, map, alpha, H, width) {
-      const A = map(P.head); this.g.strokeStyle = `rgba(244,247,250,${alpha})`; this.g.lineWidth = width;
-      this.g.beginPath(); this.g.arc(A[0], A[1], H * 0.045, 0, TAU); this.g.stroke();
-    }
-
-    // ---------- 夜场跑道 ----------
-    sprint(t, still) {
-      const g = this.g, W = this.w, Hh = this.h;
-      const horizon = Hh * 0.36, ground = Hh * 0.66;
-      const H = Math.min(Hh * 0.40, W * 0.55);                  // 人物身高（像素）
-      const cad = 1.35;                                          // 步态周期/秒（画面放慢，便于看清）
-      const speed = H * STRIDE_PER_CYCLE * cad;                  // 与支撑脚后扫速度一致，脚不打滑
-      // 夜空
-      let gr = g.createLinearGradient(0, 0, 0, horizon);
-      gr.addColorStop(0, "#050C15"); gr.addColorStop(1, "#0F2236");
-      g.fillStyle = gr; g.fillRect(0, 0, W, horizon);
-      // 灯塔：细灯杆 + 灯组，光晕和斜向光束
-      for (const [fx, dir] of [[0.24, 1], [0.8, -1]]) {
-        const lx = W * fx, ly = horizon * 0.42;
-        const rg = g.createRadialGradient(lx, ly, 0, lx, ly, W * 0.7);
-        rg.addColorStop(0, "rgba(225,238,255,0.45)"); rg.addColorStop(0.06, "rgba(170,200,235,0.18)"); rg.addColorStop(1, "rgba(20,40,70,0)");
-        g.fillStyle = rg; g.fillRect(0, 0, W, horizon + 60);
-        g.save(); g.globalAlpha = 0.07; g.fillStyle = "#DDEBFF";
-        g.beginPath(); g.moveTo(lx, ly); g.lineTo(lx + dir * W * 0.9, horizon + (Hh - horizon) * 0.3); g.lineTo(lx + dir * W * 0.55, Hh); g.closePath(); g.fill(); g.restore();
-        g.strokeStyle = "rgba(120,140,165,0.5)"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(lx, ly + 10); g.lineTo(lx, horizon - Hh * 0.1); g.stroke();
-        g.fillStyle = "rgba(255,255,255,0.95)";
-        for (let k = 0; k < 12; k++) { g.beginPath(); g.arc(lx - 11 + (k % 4) * 7.3, ly - 6 + Math.floor(k / 4) * 6, 2.1, 0, TAU); g.fill(); }
+      // 漂浮的金尘（短跑时向左流动，表现速度）
+      g.globalCompositeOperation = "lighter";
+      for (const d of this.dust) {
+        if (!this.reduced) { d.x -= (this.world === "sprint" ? 2.2 : 0.25) * d.v; d.y -= this.world === "sprint" ? 0 : 0.15 * d.v; }
+        if (d.x < -5) d.x = W + 5; if (d.y < -5) d.y = H + 5;
+        g.globalAlpha = 0.25 * d.s; g.drawImage(this.dotDim, d.x - 3, d.y - 3, 6, 6);
       }
-      // 看台（视差）
-      const standTop = horizon - Hh * 0.13;
-      g.fillStyle = "#08121C"; g.fillRect(0, standTop, W, horizon - standTop);
-      const par = (t * speed * 0.08) % W;
-      for (const p of this.crowd) {
-        const x = ((p.x * W * 1.5 - par) % (W * 1.5) + W * 1.5) % (W * 1.5) - W * 0.25, y = standTop + p.y * (horizon - standTop - 4);
-        const a = 0.18 + 0.25 * (0.5 + 0.5 * Math.sin(p.tw + t * 1.3));
-        g.fillStyle = `rgba(200,220,245,${a})`; g.fillRect(x, y, p.r, p.r);
+      // 粒子目标：开场先是“知练”，然后变成运动员
+      const introT = this.intro ? t : 99;
+      const toBody = clamp((introT - 2.0) / 1.1, 0, 1);
+      const segs = B.segs, pts = this.textPts, nseg = segs.length;
+      const headR = 0.052 * B.size;
+      for (const p of this.ps) {
+        // 身体上的位置
+        let bx, by, bri = 1;
+        if (p.k < 0.1) { bx = B.head[0] + Math.cos(p.a) * p.r * headR; by = B.head[1] + Math.sin(p.a) * p.r * headR; }
+        else if (B.bar && p.k < 0.2) { const R = 0.128 * B.size, rr = R * (0.82 + 0.18 * p.r); bx = B.bar[0] + Math.cos(p.a) * rr; by = B.bar[1] + Math.sin(p.a) * rr; }
+        else {
+          const sg = segs[Math.floor(p.u * nseg) % nseg], A = B.map(B.P[sg[0]]), C = B.map(B.P[sg[1]]);
+          const v = (p.u * nseg) % 1, dx = C[0] - A[0], dy = C[1] - A[1], L = Math.hypot(dx, dy) || 1;
+          const halo = p.k > 0.82;                                   // 约 18% 的粒子游离在身体外围，形成光晕
+          const w = sg[2] * B.size * (p.r * 2 - 1) * (halo ? 2.6 : 1);
+          if (halo) bri *= 0.45;
+          bx = A[0] + dx * v - dy / L * w; by = A[1] + dy * v + dx / L * w; bri = sg[3];
+        }
+        let tx = bx, ty = by;
+        if (toBody < 1) {
+          const q = pts.length ? pts[p.ti % pts.length] : [W / 2, H / 2];
+          const gather = ease(clamp((introT - p.delay * 0.8) / 1.2, 0, 1));
+          const sx = lerp(p.x0 ?? (p.x0 = p.x), q[0], gather), sy = lerp(p.y0 ?? (p.y0 = p.y), q[1], gather);
+          const m = ease(clamp(toBody * 1.4 - p.delay * 0.5, 0, 1));
+          tx = lerp(sx, bx, m); ty = lerp(sy, by, m);
+          p.x = tx; p.y = ty;
+        } else {
+          const k = this.reduced ? 1 : 0.35;
+          p.x += (tx - p.x) * k; p.y += (ty - p.y) * k;
+        }
+        const tw = 0.55 + 0.45 * Math.sin(p.tw + t * 2.6);
+        const jx = this.reduced ? 0 : Math.sin(p.tw * 7 + t * 4) * 0.8, jy = this.reduced ? 0 : Math.cos(p.tw * 5 + t * 3.4) * 0.8;
+        const sz = (0.9 + p.s * 1.3) * (bri < 0.9 ? 0.85 : 1);
+        g.globalAlpha = clamp(0.36 * tw * bri + 0.06, 0, 1);
+        g.drawImage(bri < 0.9 ? this.dotDim : this.dotGold, p.x + jx - sz, p.y + jy - sz, sz * 2, sz * 2);
       }
-      // 跑道（向前方收窄的分道）
-      gr = g.createLinearGradient(0, horizon, 0, Hh);
-      gr.addColorStop(0, "#5E2317"); gr.addColorStop(0.45, "#A93A28"); gr.addColorStop(1, "#7A2A1D");
-      g.fillStyle = gr; g.fillRect(0, horizon, W, Hh - horizon);
-      g.save(); g.globalAlpha = 0.5; g.fillStyle = g.createPattern(this.noise, "repeat"); g.fillRect(0, horizon, W, Hh - horizon); g.restore();
-      const lanes = [0, 0.08, 0.2, 0.38, 0.62, 0.95, 1.4];
-      g.strokeStyle = "rgba(233,228,218,0.85)";
-      lanes.forEach((f, i) => { const y = horizon + (Hh - horizon) * f; g.lineWidth = 0.8 + i * 0.7; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); });
-      // 场地标记（随运动员前进向左移动）
-      const scroll = t * speed;
-      const mk = H * 1.6;
-      g.fillStyle = "rgba(233,228,218,0.8)";
-      for (let x = -((scroll) % mk); x < W; x += mk) {
-        const y0 = horizon + (Hh - horizon) * 0.38, y1 = horizon + (Hh - horizon) * 0.62;
-        g.fillRect(x, y0 + (y1 - y0) * 0.45, H * 0.16, 2.5);
-      }
-      // 人物：机位跟随，人物固定在 58% 宽度
-      const rx = W * 0.6;
-      const map = P => [rx + P[0] * H, ground - P[1] * H];
-      const phase = (t * cad) % 1;
-      // 地面阴影与光晕
-      const sg = g.createRadialGradient(rx, ground + 4, 0, rx, ground + 4, H * 0.5);
-      sg.addColorStop(0, "rgba(0,0,0,0.45)"); sg.addColorStop(1, "rgba(0,0,0,0)");
-      g.fillStyle = sg; g.fillRect(rx - H * 0.6, ground - 10, H * 1.2, 30);
-      // 多重曝光：过去的姿态按真实位移留在身后
-      const exposures = 5, dt = 0.16;
-      for (let k = exposures; k >= 1; k--) {
-        const tt = t - k * dt;
-        const P = runnerPose(((tt * cad) % 1 + 1) % 1);
-        const ox = -k * dt * speed;
-        const a = 0.42 * Math.pow(1 - k / (exposures + 1), 1.6);
-        this.bones(P, RUN_BONES, p => [rx + ox + p[0] * H, ground - p[1] * H], a, Math.max(1.5, H / 120), false);
-        this.headCircle(P, p => [rx + ox + p[0] * H, ground - p[1] * H], a, H, Math.max(1.5, H / 120));
-      }
-      const P = runnerPose(phase);
-      g.save(); g.shadowColor = "rgba(160,220,255,0.7)"; g.shadowBlur = 14;
-      this.bones(P, RUN_BONES, map, 1, Math.max(2.5, H / 60), true);
-      this.headCircle(P, map, 1, H, Math.max(2.5, H / 60));
-      g.restore();
-      // 触地瞬间：脚下红点
-      const near = legAngles(phase), far = legAngles((phase + 0.5) % 1);
-      for (const [side, a] of [["near", near], ["far", far]]) {
-        const toe = map(P[side + "Toe"]);
-        if (Math.abs(toe[1] - ground) < 2.5) { g.fillStyle = "#FF6A4A"; g.beginPath(); g.arc(toe[0], ground, 5, 0, TAU); g.fill(); }
-      }
-      this.vignette("rgba(3,7,12,0.88)");
-      this.ruler(t, still, "rgba(233,228,218,0.9)", "#FF6A4A", rx);
-    }
-
-    // ---------- 举重台 ----------
-    lift(t, still) {
-      const g = this.g, W = this.w, Hh = this.h;
-      const floor = Hh * 0.62, H = Math.min(Hh * 0.46, W * 0.7);
-      const ax = W * 0.66;
-      // 场馆
-      let gr = g.createLinearGradient(0, 0, 0, Hh);
-      gr.addColorStop(0, "#0B0806"); gr.addColorStop(0.7, "#1C140E"); gr.addColorStop(1, "#0E0A07");
-      g.fillStyle = gr; g.fillRect(0, 0, W, Hh);
-      // 顶光光锥
-      g.save();
-      const cone = g.createLinearGradient(0, 0, 0, floor);
-      cone.addColorStop(0, "rgba(255,236,205,0.30)"); cone.addColorStop(1, "rgba(255,220,170,0.06)");
-      g.fillStyle = cone; g.beginPath(); g.moveTo(ax - W * 0.06, 0); g.lineTo(ax + W * 0.06, 0); g.lineTo(ax + W * 0.42, floor); g.lineTo(ax - W * 0.42, floor); g.closePath(); g.fill();
-      g.restore();
-      // 举重台（木板）
-      const px0 = ax - W * 0.4, px1 = ax + W * 0.4;
-      gr = g.createLinearGradient(0, floor, 0, Hh);
-      gr.addColorStop(0, "#6B4A2E"); gr.addColorStop(1, "#2A1C11");
-      g.fillStyle = gr; g.beginPath(); g.moveTo(px0, floor); g.lineTo(px1, floor); g.lineTo(px1 + W * 0.15, Hh); g.lineTo(px0 - W * 0.15, Hh); g.closePath(); g.fill();
-      g.strokeStyle = "rgba(20,12,6,0.55)"; g.lineWidth = 1;
-      for (let k = 1; k < 7; k++) { const f = k / 7; g.beginPath(); g.moveTo(lerp(px0, px1, f), floor); g.lineTo(lerp(px0 - W * 0.15, px1 + W * 0.15, f), Hh); g.stroke(); }
-      g.save(); g.globalAlpha = 0.35; g.fillStyle = g.createPattern(this.noise, "repeat"); g.fillRect(0, floor, W, Hh - floor); g.restore();
-      g.fillStyle = "rgba(237,230,218,0.7)"; g.fillRect(px0, floor - 1, px1 - px0, 2);
-      // 镁粉
-      for (const p of this.dust) {
-        const y = ((p.y - t * p.v) % 1 + 1) % 1, x = ax + (p.x - 0.5) * W * 0.7 * (0.3 + y) + Math.sin(t * 0.6 + p.d) * 8;
-        g.fillStyle = `rgba(237,230,218,${0.15 + 0.35 * y})`; g.beginPath(); g.arc(x, y * floor, p.r, 0, TAU); g.fill();
-      }
-      const lt = still ? 1.9 : (t % LIFT_T);
-      const map = P => [ax + P[0] * H, floor - P[1] * H];
-      // 多重曝光：拉的过程
-      const exp = [];
-      for (let s = 0.62; s <= Math.min(lt, 2.0); s += 0.11) exp.push(s);
-      exp.forEach((s, k) => {
-        const P = liftPose(s), a = 0.12 + 0.2 * (k / Math.max(1, exp.length - 1));
-        this.bones(P, LIFT_BONES, map, a, Math.max(1.5, H / 140), false);
-      });
-      const P = liftPose(lt);
-      const bar = map(P.bar), plateR = H * 0.128;
-      // 杠铃片：只画橡胶片外圈和很淡的片面，骨骼透过来可见
-      g.fillStyle = "rgba(20,15,11,0.35)"; g.beginPath(); g.arc(bar[0], bar[1], plateR, 0, TAU); g.fill();
-      g.strokeStyle = "rgba(200,69,46,0.9)"; g.lineWidth = Math.max(2.5, plateR * 0.1); g.beginPath(); g.arc(bar[0], bar[1], plateR * 0.95, 0, TAU); g.stroke();
-      g.save(); g.shadowColor = "rgba(160,220,255,0.6)"; g.shadowBlur = 12;
-      this.bones(P, LIFT_BONES, map, 1, Math.max(2.5, H / 70), true);
-      this.headCircle(P, map, 1, H, Math.max(2.5, H / 70));
-      g.restore();
-      // 杠铃轨迹（最上层）
-      const path = [];
-      for (let s2 = 0; s2 <= lt; s2 += 0.02) path.push(map(liftPose(s2).bar));
-      if (path.length > 1) {
-        g.save(); g.shadowColor = "rgba(255,106,74,0.9)"; g.shadowBlur = 14;
-        g.strokeStyle = "#FF6A4A"; g.lineWidth = Math.max(3, H / 80); g.lineCap = "round"; g.lineJoin = "round";
-        g.beginPath(); path.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); g.restore();
-      }
-      g.fillStyle = "#FFFFFF"; g.beginPath(); g.arc(bar[0], bar[1], Math.max(4, plateR * 0.12), 0, TAU); g.fill();
-      if (!still && lt > 4.6) { g.fillStyle = `rgba(11,8,6,${(lt - 4.6) / 0.4})`; g.fillRect(0, 0, W, Hh); }
-      this.vignette("rgba(5,3,2,0.88)");
-      this.ruler(t, still, "rgba(237,230,218,0.85)", "#FF6A4A", bar[0]);
-    }
-
-    // ---------- 终点摄影时间刻度 ----------
-    ruler(t, still, ink, red, lineX) {
-      const g = this.g, W = this.w, Hh = this.h, y = Hh - 22;
-      const pxPerS = W * 0.9, off = still ? 0 : (t * pxPerS * 0.25) % (pxPerS / 10);
-      g.fillStyle = "rgba(0,0,0,0.35)"; g.fillRect(0, y - 16, W, 38);
-      g.strokeStyle = ink; g.fillStyle = ink; g.lineWidth = 1;
-      g.font = `600 11px "DIN Alternate","Bahnschrift",-apple-system,sans-serif`;
-      const base = still ? 0 : Math.floor(t * 0.25 * 10) / 10;
-      for (let k = -1; k < 14; k++) {
-        const x = k * pxPerS / 10 - off;
-        for (let m = 0; m < 10; m++) { const xm = x + m * pxPerS / 100; g.beginPath(); g.moveTo(xm, y + (m === 0 ? -10 : -4)); g.lineTo(xm, y); g.stroke(); }
-        g.fillText((base + k / 10).toFixed(2), x + 3, y + 13);
-      }
-      g.strokeStyle = red; g.lineWidth = 2; g.beginPath(); g.moveTo(lineX, y - 16); g.lineTo(lineX, y + 16); g.stroke();
-    }
-    vignette(c) {
-      const g = this.g, W = this.w, Hh = this.h;
-      const gr = g.createLinearGradient(0, Hh * 0.45, 0, Hh);
-      gr.addColorStop(0, "rgba(0,0,0,0)"); gr.addColorStop(1, c);
-      g.fillStyle = gr; g.fillRect(0, Hh * 0.45, W, Hh * 0.55);
+      g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+      if (this.intro && !this.introDone && introT > 3.2) { this.introDone = true; this.onIntroDone(); }
     }
   }
   root.Cover = Cover;
