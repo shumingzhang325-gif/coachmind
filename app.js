@@ -1179,8 +1179,23 @@
     return idx;
   }
 
+  function renderHeroEvent(athletes) {
+    const box = $("heroEvent"); if (!box) return;
+    const next = athletes.map(a => ({ a, d: daysTo(a.goalDate) })).filter(x => x.d != null && x.d >= 0).sort((x, y) => x.d - y.d)[0];
+    if (next) {
+      const sp = window.SPORTLIB ? SPORTLIB.byId(next.a.sport || "sprint") : null;
+      box.innerHTML = `<p class="eyebrow">即将到来</p><h2>${esc(next.a.name)}　${esc(sp ? sp.name : "")}</h2>
+        <p class="italic">${esc(next.a.goalText || (Number.isFinite(next.a.goalTime) ? `目标 ${next.a.goalTime} 秒` : "目标比赛"))}<br>${next.a.goalDate.replace(/-/g, ".")} · 还有 ${next.d} 天</p>
+        <button class="link" id="heroEventGo">查看训练计划</button>`;
+      $("heroEventGo").onclick = () => openAthlete(next.a.id);
+    } else {
+      box.innerHTML = `<p class="eyebrow">运动员</p><h2>建立第一份档案</h2><p class="italic">One athlete, one plan.<br>目标、测试、每日状态，都在这里。</p><button class="link" id="heroEventGo">添加运动员</button>`;
+      $("heroEventGo").onclick = () => { const b = $("addPerson"); if (b) b.click(); };
+    }
+  }
   async function renderPeople() {
     const athletes = (await dbAll("athletes")).sort((a, b) => a.name.localeCompare(b.name, "zh"));
+    renderHeroEvent(athletes);
     const cards = athletes.map(a => {
       const R = COACH.readiness(a), d = daysTo(a.goalDate);
       const line = Number.isFinite(a.pb) && Number.isFinite(a.goalTime) ? `${a.pb} → ${a.goalTime} 秒` : "点开完善档案和目标";
@@ -1577,51 +1592,30 @@
 
   // ---------------- 封面 ----------------
   const HERO = {
-    sprint: { title: "SPRINT", eyebrow: "短跑", line: "看清 0.1 秒里的每一次触地", go: "分析一段短跑视频", action: "sprint" },
-    lift: { title: "POWER", eyebrow: "高翻　抓举", line: "看清杠铃走过的每一厘米", go: "分析一段举重视频", action: "clean" },
+    sprint: { title: "SPRINT", eyebrow: "第一章　速度", issue: "Chapter I · The Anatomy of Speed", story: "看清每一次触地", line: "Where speed meets science.", go: "分析一段短跑视频", action: "sprint" },
+    lift: { title: "POWER", eyebrow: "第二章　力量", issue: "Chapter II · The Path of the Bar", story: "看清杠铃走过的每一厘米", line: "Where strength meets precision.", go: "分析一段举重视频", action: "clean" },
   };
   let cover = null;
   function setWorld(w) {
     const H = HERO[w] || HERO.sprint;
-    document.querySelectorAll(".worlds button").forEach(b => b.setAttribute("aria-pressed", b.dataset.w === w));
+    document.querySelectorAll(".mnav button[data-w]").forEach(b => b.setAttribute("aria-pressed", b.dataset.w === w));
     $("heroTitle").textContent = H.title; $("heroLine").textContent = H.line; $("heroEyebrow").textContent = H.eyebrow;
-    if (typeof loadHeroPhoto === "function") loadHeroPhoto(w);
+    $("heroIssue").textContent = H.issue; $("heroStory").textContent = H.story;
     $("heroGo").textContent = H.go; $("heroGo").dataset.action = H.action;
     if (cover) cover.setWorld(w);
     try { localStorage.setItem("cm_world", w); } catch (e) { /* 忽略 */ }
   }
-  // 开场（本次打开只播一次，点一下可跳过）
-  (function intro() {
-    const el = $("intro"), hero = $("hero");
+  // 开场即封面：田径场日出（本次打开第一次完整播放；之后快速亮起；点一下可加速）
+  {
+    const hero = $("hero");
     let seen = false; try { seen = sessionStorage.getItem("cm_intro") === "1"; sessionStorage.setItem("cm_intro", "1"); } catch (e) { /* 忽略 */ }
-    const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const end = () => { el.classList.add("done"); hero.classList.remove("intro"); };
-    if (seen || reduce) { end(); return; }
-    el.addEventListener("click", end);
-    el.addEventListener("animationend", e => { if (e.animationName === "i-out") end(); });
-    setTimeout(() => hero.classList.remove("intro"), 2700);
-    setTimeout(end, 3600);
-  })();
-  if (window.Cover) { cover = new Cover($("heroCanvas"), { world: localStorage.getItem("cm_world") || "sprint" }); cover.start(); }
-  // 封面照片：你选的照片（存在手机里）→ 仓库里的 img/hero-*.jpg
-  let heroUrl = null;
-  async function loadHeroPhoto(w) {
-    const el = $("heroPhoto"); el.classList.remove("on");
-    let url = null;
-    try { const rec = await dbGet("files", "hero_" + w); if (rec && rec.blob) { if (heroUrl) URL.revokeObjectURL(heroUrl); heroUrl = url = URL.createObjectURL(rec.blob); } } catch (e) { /* 忽略 */ }
-    if (!url && !window.CM_PREVIEW) url = `img/hero-${w}.jpg`;
-    if (!url) return;
-    const img = new Image();
-    img.onload = () => { if ((localStorage.getItem("cm_world") || "sprint") === w) { el.style.backgroundImage = `url("${url}")`; el.classList.add("on"); } };
-    img.src = url;
+    const reveal = () => hero.classList.remove("intro");
+    if (window.Cover) { cover = new Cover($("heroCanvas"), { world: localStorage.getItem("cm_world") || "sprint", imageUrl: window.CM_SUNRISE || "img/sunrise.jpg", intro: !seen, onReveal: reveal }); cover.start(); }
+    else reveal();
+    setTimeout(reveal, seen ? 1500 : 9000);
   }
-  $("heroFile").onchange = async e => {
-    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
-    const w = localStorage.getItem("cm_world") || "sprint";
-    await dbPut("files", { id: "hero_" + w, blob: f, saved: new Date().toISOString() });
-    toast("封面照片已更换"); loadHeroPhoto(w);
-  };
-  document.querySelectorAll(".worlds button").forEach(b => b.onclick = () => setWorld(b.dataset.w));
+  document.querySelectorAll(".mnav button[data-w]").forEach(b => b.onclick = () => setWorld(b.dataset.w));
+  document.querySelectorAll(".mnav a").forEach(l => l.onclick = e => { e.preventDefault(); const t = document.querySelector(l.getAttribute("href")); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); });
   $("heroGo").onclick = () => startNew($("heroGo").dataset.action);
   setWorld(localStorage.getItem("cm_world") || "sprint");
 

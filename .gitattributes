@@ -2,3 +2,4 @@
 *.wasm binary
 *.mjs -text
 *.jpg binary
+*.woff2 binary
