@@ -516,20 +516,26 @@ header.bar .ttl { font-family: var(--serif); letter-spacing: 0.12em; }
 .in-tag { font-family: var(--serif); letter-spacing: 0.3em; color: var(--gold); }
 .in-time { font-family: var(--num); color: rgba(228,201,139,0.7); }
 
+
+/* ================= 封面：粒子舞台（参考电影感落地页） ================= */
+.hero { height: 100svh; min-height: 560px; max-height: 980px; margin: -4px calc(-1 * var(--pad)) 36px; border: 0; background: #050506; border-radius: 0; }
+@media (min-width: 700px) { .hero { margin: 12px 0 40px; height: min(88vh, 900px); border-radius: 8px; border: 1px solid rgba(201,164,92,0.18); } }
+.hero::after { inset: 14px; border-color: rgba(201,164,92,0.22); }
+.hero-shade, .hero-photo, .hero-change { display: none; }
+.hero-top, .hero-copy, .scrollcue { transition: opacity 1.2s ease, transform 1.2s cubic-bezier(.2,.7,.2,1); }
+.hero.intro .hero-top, .hero.intro .hero-copy, .hero.intro .scrollcue { opacity: 0; transform: translateY(12px); }
+.hero-copy { left: 0; right: 0; bottom: 9%; text-align: center; }
+.hero-copy .kicker { font-family: var(--serif); letter-spacing: 0.6em; text-indent: 0.6em; color: var(--gold); font-size: 15px; margin: 0 0 8px; }
+.hero-copy h1 { font-family: var(--num); font-weight: 400; font-size: clamp(56px, 18vw, 132px); letter-spacing: 0.14em; text-indent: 0.14em; line-height: 1; margin: 0;
+  color: #F4EEDF; text-shadow: 0 0 28px rgba(228,201,139,0.45), 0 0 2px rgba(255,255,255,0.6); }
+.hero-copy .tagline { font-family: var(--num); font-style: italic; color: rgba(238,231,216,0.8); font-size: 17px; letter-spacing: 0.04em; margin: 14px 0 22px; text-shadow: none; }
+.hero-copy .btn.go { background: transparent; color: var(--gold-hi); border: 1px solid rgba(228,201,139,0.7); box-shadow: 0 0 30px rgba(201,164,92,0.15) inset; padding: 0 30px; min-height: 50px; }
+.hero-copy .btn.go:active { background: rgba(201,164,92,0.15); }
+.scrollcue { position: absolute; left: 50%; bottom: 22px; width: 1px; height: 26px; background: linear-gradient(rgba(201,164,92,0), rgba(201,164,92,0.8)); z-index: 2; }
+
 </style>
 </head>
 <body>
-<div id="intro" aria-hidden="true">
-  <div class="in-stage">
-    <svg class="in-lanes" viewBox="0 0 360 160" preserveAspectRatio="none">
-      <line x1="0" y1="20" x2="360" y2="20"/><line x1="0" y1="52" x2="360" y2="52"/><line x1="0" y1="84" x2="360" y2="84"/><line x1="0" y1="116" x2="360" y2="116"/><line x1="0" y1="148" x2="360" y2="148"/>
-    </svg>
-    <div class="in-word"><span>知练</span></div>
-    <div class="in-line"></div>
-    <div class="in-time" id="introTime">0.00</div>
-    <p class="in-tag">让每一次训练，都有科学依据</p>
-  </div>
-</div>
 <header class="bar" id="bar">
   <button class="back" id="backBtn" hidden aria-label="返回"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
   <div class="ttl" id="title"></div>
@@ -539,24 +545,22 @@ header.bar .ttl { font-family: var(--serif); letter-spacing: 0.12em; }
 <main>
 <!-- 首页 -->
 <section class="view on" id="v-home">
-  <div class="hero" id="hero">
-    <div class="hero-photo" id="heroPhoto" aria-hidden="true"></div>
+  <div class="hero intro" id="hero">
     <canvas id="heroCanvas" aria-hidden="true"></canvas>
-    <div class="hero-shade"></div>
     <div class="hero-top">
       <b>知练<em>CoachMind</em></b>
       <div class="worlds" role="group" aria-label="切换动作">
         <button data-w="sprint" aria-pressed="true">短跑</button>
-        <button data-w="lift" aria-pressed="false">高翻</button>
+        <button data-w="lift" aria-pressed="false">举重</button>
       </div>
     </div>
     <div class="hero-copy">
-      <p class="eyebrow" id="heroEyebrow">Sprint</p>
-      <h1 id="heroTitle">短跑</h1>
-      <p id="heroLine">看清 0.1 秒里的每一次触地</p>
-      <button class="btn go" id="heroGo" data-action="sprint">分析一段短跑视频</button><label class="hero-change" for="heroFile">更换封面照片</label>
-      <input type="file" id="heroFile" accept="image/*" hidden>
+      <p class="kicker" id="heroEyebrow">短跑</p>
+      <h1 id="heroTitle">SPRINT</h1>
+      <p class="tagline" id="heroLine">看清 0.1 秒里的每一次触地</p>
+      <button class="btn go" id="heroGo" data-action="sprint">分析一段短跑视频</button>
     </div>
+    <div class="scrollcue" aria-hidden="true"></div>
   </div>
 
   <div class="sechead"><h2>项目技术库</h2></div>

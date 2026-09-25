@@ -1413,7 +1413,7 @@
   // 手动标记
   function setupMarking() {
     const box = $("markBox");
-    box.hidden = !(S.action === "sprint" && !$("playerWrap").hidden);
+    box.hidden = !(S.action === "sprint" && !$("playerWrap").hidden && ((S.result.steps || []).length < 2 || S.result.manual));
     if (box.hidden) return;
     S.manual = S.manual || [];
     S.markSide = S.markSide || "left";
@@ -1529,58 +1529,29 @@
 
   // ---------------- 封面 ----------------
   const HERO = {
-    sprint: { title: "短跑", eyebrow: "Sprint", line: "看清 0.1 秒里的每一次触地", go: "分析一段短跑视频", action: "sprint" },
-    lift: { title: "高翻 / 抓举", eyebrow: "Olympic Lifting", line: "看清杠铃走过的每一厘米", go: "分析一段举重视频", action: "clean" },
+    sprint: { title: "SPRINT", eyebrow: "短跑", line: "看清 0.1 秒里的每一次触地", go: "分析一段短跑视频", action: "sprint" },
+    lift: { title: "POWER", eyebrow: "高翻　抓举", line: "看清杠铃走过的每一厘米", go: "分析一段举重视频", action: "clean" },
   };
   let cover = null, heroUrl = null;
-  // 封面照片：你上传的照片（存在手机里）→ 仓库里的 img/hero-*.jpg → 画出来的场景
-  async function loadHeroPhoto(w) {
-    const el = $("heroPhoto"); el.classList.remove("on");
-    let url = null;
-    try { const rec = await dbGet("files", "hero_" + w); if (rec && rec.blob) { if (heroUrl) URL.revokeObjectURL(heroUrl); heroUrl = url = URL.createObjectURL(rec.blob); } } catch (e) { /* 忽略 */ }
-    if (!url && !window.CM_PREVIEW) url = `img/hero-${w}.jpg`;
-    if (!url) return;
-    const img = new Image();
-    img.onload = () => { if ((localStorage.getItem("cm_world") || "sprint") === w) { el.style.backgroundImage = `url("${url}")`; el.classList.add("on"); } };
-    img.src = url;
-  }
-  $("heroFile").onchange = async e => {
-    const f = e.target.files[0]; e.target.value = "";
-    if (!f) return;
-    const w = localStorage.getItem("cm_world") || "sprint";
-    await dbPut("files", { id: "hero_" + w, blob: f, saved: new Date().toISOString() });
-    toast("封面照片已更换"); loadHeroPhoto(w);
-  };
   function setWorld(w) {
     const H = HERO[w] || HERO.sprint;
     document.querySelectorAll(".worlds button").forEach(b => b.setAttribute("aria-pressed", b.dataset.w === w));
     $("heroTitle").textContent = H.title; $("heroLine").textContent = H.line; $("heroEyebrow").textContent = H.eyebrow;
-    loadHeroPhoto(w);
     $("heroGo").textContent = H.go; $("heroGo").dataset.action = H.action;
     if (cover) cover.setWorld(w);
     try { localStorage.setItem("cm_world", w); } catch (e) { /* 忽略 */ }
   }
   if (window.Cover) {
-    cover = new Cover($("heroCanvas"), { world: localStorage.getItem("cm_world") || "sprint" });
+    let seen = false; try { seen = sessionStorage.getItem("cm_intro") === "1"; sessionStorage.setItem("cm_intro", "1"); } catch (e) { /* 忽略 */ }
+    const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (seen || reduce) $("hero").classList.remove("intro");
+    cover = new Cover($("heroCanvas"), { world: localStorage.getItem("cm_world") || "sprint", intro: !seen && !reduce, onIntroDone: () => $("hero").classList.remove("intro") });
     cover.start();
-  }
+    setTimeout(() => $("hero").classList.remove("intro"), 4200);
+  } else $("hero").classList.remove("intro");
   document.querySelectorAll(".worlds button").forEach(b => b.onclick = () => setWorld(b.dataset.w));
   $("heroGo").onclick = () => startNew($("heroGo").dataset.action);
   setWorld(localStorage.getItem("cm_world") || "sprint");
-
-  // ---------------- 开场动画 ----------------
-  (function intro() {
-    const el = $("intro"); if (!el) return;
-    const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let seen = false; try { seen = sessionStorage.getItem("cm_intro") === "1"; sessionStorage.setItem("cm_intro", "1"); } catch (e) { /* 忽略 */ }
-    if (reduce || seen) { el.classList.add("done"); return; }
-    const t0 = performance.now(), tick = () => { const t = (performance.now() - t0) / 1000; $("introTime").textContent = Math.min(t, 1.95).toFixed(2); if (t < 1.95 && !el.classList.contains("done")) requestAnimationFrame(tick); };
-    requestAnimationFrame(tick);
-    const end = () => el.classList.add("done");
-    el.addEventListener("click", end);
-    el.addEventListener("animationend", e => { if (e.animationName === "in-out") end(); });
-    setTimeout(end, 3200);
-  })();
 
   // ---------------- 启动 ----------------
   if (!window.CM_PREVIEW && "serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
