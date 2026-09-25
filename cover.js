@@ -1,6 +1,7 @@
 /* 知练封面
-   短跑：日出田径场——把真实操场照片从“黑夜”实时重新打光：星星隐去，太阳从地平线后缓缓升起（被楼挡住的地方不透光），
-         天空由深蓝转为暖橙，红色塑胶跑道被逐渐照亮，一道阳光沿跑道铺向镜头；全程镜头缓慢推近。
+   短跑：日出田径场（完全程序生成）——凌晨四点的朦胧蓝：薄雾、远处树林与楼群、灯杆亮着；
+         太阳从跑道消失点升起，天空由地平线开始转暖，雾散去，灯逐个熄灭，阳光沿跑道铺向镜头；
+         红色塑胶、白色分道线、绿色草坪由灰蓝逐渐变得饱满；镜头沿跑道缓慢前滑。
    举重：竖直上升的暖色光带。
    全部由手机显卡实时渲染。 */
 (function (root) {
@@ -15,66 +16,127 @@ float n(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * 
 float fbm(vec2 p){ float v = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { v += a * n(p); p *= 2.03; a *= 0.5; } return v; }
 vec3 sat(vec3 c, float s){ float l = dot(c, vec3(0.299, 0.587, 0.114)); return mix(vec3(l), c, s); }
 `;
-  // ---------- 日出 ----------
+  // ---------- 日出田径场（完全程序生成，不使用照片） ----------
   const FS_SUN = COMMON + `
-uniform sampler2D img; uniform float p, imgA, zoom;
-const float HOR = 0.645;                 // 照片中地平线（天空与围栏交界）的位置
-const vec2 SUN0 = vec2(0.50, 0.720);     // 太阳起点：地平线以下
-const vec2 SUN1 = vec2(0.50, 0.575);     // 太阳终点：刚好在云层下沿
+uniform float p;
+const float HOR = -0.17;                  // 地平线（屏幕坐标，中心为 0）
+const float HC = 2.2;                     // 相机离地高度（米）
+const float CAMX = 2.6;                   // 相机横向位置：第 3 道上方（x=0 为内侧路缘）
+vec3 skyAt(vec2 uv, float warm, float k) {
+  float h = uv.y - HOR;
+  vec3 zen = mix(vec3(0.15, 0.22, 0.38), vec3(0.20, 0.34, 0.58), k);
+  vec3 hor = mix(vec3(0.50, 0.58, 0.72), vec3(1.0, 0.63, 0.36), warm);
+  return mix(hor, zen, smoothstep(0.0, 0.6, h));
+}
+float skyline(float x) {
+  float s = HOR + 0.008 + 0.016 * fbm(vec2(x * 11.0, 1.3)) + 0.006 * n(vec2(x * 60.0, 2.0));   // 远处树林
+  s = max(s, HOR + 0.046 * smoothstep(-0.245, -0.240, x) * smoothstep(-0.150, -0.155, x));        // 左侧楼群
+  s = max(s, HOR + 0.032 * smoothstep(-0.160, -0.155, x) * smoothstep(-0.105, -0.110, x));
+  s = max(s, HOR + 0.036 * smoothstep(0.150, 0.155, x) * smoothstep(0.215, 0.210, x));            // 右侧楼
+  return s;
+}
 void main(){
-  vec2 s = gl_FragCoord.xy / res; s.y = 1.0 - s.y;
-  float sa = res.x / res.y; vec2 uv;
-  if (sa < imgA) { float f = sa / imgA; uv = vec2(clamp(0.5, f * 0.5, 1.0 - f * 0.5) + (s.x - 0.5) * f, s.y); }
-  else { float f = imgA / sa; uv = vec2(s.x, clamp(0.56, f * 0.5, 1.0 - f * 0.5) + (s.y - 0.5) * f); }
-  float rise = smoothstep(0.08, 0.88, p);
-  vec2 sun = mix(SUN0, SUN1, rise * rise * (3.0 - 2.0 * rise));
-  uv = SUN1 + (uv - SUN1) / zoom;                       // 镜头推近
-  vec3 base = texture2D(img, clamp(uv, 0.001, 0.999)).rgb;
-  float lum = dot(base, vec3(0.299, 0.587, 0.114));
-  float sky = smoothstep(HOR + 0.006, HOR - 0.014, uv.y);
-  float open = sky * smoothstep(0.20, 0.42, lum);        // 真正的天空（楼、灯杆、围栏不算）
-  float ground = smoothstep(HOR - 0.004, HOR + 0.035, uv.y);
-  float k = smoothstep(0.12, 0.95, p);                   // 天亮程度
-
-  // 黑夜：整体压暗并偏深蓝；天空上方更蓝
-  vec3 night = base * vec3(0.075, 0.10, 0.19) + vec3(0.004, 0.007, 0.02) * (1.0 - uv.y);
-  // 白天：暖色调，地面整体提亮，红色跑道加饱和
-  vec3 day = base * vec3(1.04, 1.0, 0.96);
-  vec3 lit = sat(base * 1.75 * vec3(1.18, 0.9, 0.78), 1.45);
-  day = mix(day, lit, ground * 0.9);
-  vec3 col = mix(night, day, k);
-
-  // 太阳：光晕（先亮）、日轮（被楼挡住）、光芒
-  vec2 d = vec2((uv.x - sun.x) * imgA, uv.y - sun.y);
-  float r = length(d);
-  vec3 warm = vec3(1.0, 0.52, 0.2), hot = vec3(1.0, 0.86, 0.62);
-  col += warm * exp(-r * r * 5.0) * 0.32 * rise * (0.35 + 0.65 * sky);
-  col += hot * exp(-r * r * 55.0) * 0.55 * rise * open;
-  float R = 0.024;
-  float disk = smoothstep(R, R * 0.72, r) * open * smoothstep(0.12, 0.4, p);
-  col += vec3(2.6, 2.2, 1.6) * disk;                                  // 日轮比照片更亮（高光）
-  col += hot * exp(-r * r * 900.0) * 1.3 * open * rise;               // 紧贴日轮的辉光
-  col += warm * exp(-r * r * 160.0) * 0.45 * rise * sky;              // 中等光晕
-  float ang = atan(d.y, d.x);
-  float rays = fbm(vec2(ang * 5.0, t * 0.05)) ;                       // 不规则的淡光芒
-  col += warm * smoothstep(0.55, 0.9, rays) * exp(-r * 4.5) * 0.06 * rise * sky;
-
-  // 阳光铺在跑道上：太阳正下方一道逐渐变宽的暖光
-  float depth = clamp((uv.y - HOR) / (1.0 - HOR), 0.0, 1.0);
-  float path = exp(-pow((uv.x - sun.x) * imgA / (0.025 + 0.55 * depth), 2.0));
-  col += warm * path * ground * (0.8 - 0.45 * depth) * k;
-  col += vec3(1.0, 0.6, 0.35) * ground * 0.05 * k;       // 整片场地的暖色反光
-
-  // 星空：只在夜里、只在开阔天空
-  vec2 sp = uv * vec2(imgA, 1.0) * 260.0;
-  float star = step(0.9972, h(floor(sp))) * (0.55 + 0.45 * sin(t * 1.7 + h(floor(sp)) * 50.0));
-  col += vec3(0.8, 0.86, 1.0) * star * (1.0 - smoothstep(0.0, 0.45, p)) * open * smoothstep(0.52, 0.3, uv.y) * 0.9;
-
-  // 暗角、颗粒、色调映射
-  float vig = smoothstep(1.2, 0.3, length((s - vec2(0.5, 0.5)) * vec2(1.0, 0.85)));
-  col *= mix(0.55, 1.0, vig);
-  col += (h(gl_FragCoord.xy + fract(t) * 91.0) - 0.5) * 0.022;
-  col = col - max(col - 0.82, 0.0) * 0.55;                           // 柔和高光，保留照片原本的色彩与对比
+  vec2 uv = (gl_FragCoord.xy - 0.5 * res) / res.y;
+  float rise = smoothstep(0.10, 0.90, p);
+  float k = smoothstep(0.20, 0.95, p);                                  // 天亮程度
+  vec2 sun = vec2(0.0, HOR + mix(-0.05, 0.07, rise * rise * (3.0 - 2.0 * rise)));
+  float warmC = rise * (0.35 + 0.65 * exp(-uv.x * uv.x * 4.0));
+  vec3 horizonHaze = skyAt(vec2(uv.x, HOR), warmC, k);
+  vec3 sunCol = vec3(1.0, 0.78, 0.52);
+  vec3 col;
+  float yv = uv.y - HOR;
+  if (yv < 0.0) {
+    // ---- 地面：光线与地面求交 ----
+    float z = HC / (-yv);
+    float x = CAMX + uv.x * z;
+    float zw = z + t * 0.9;                                              // 缓慢向前滑行
+    float pxW = z / res.y * 1.6, pxZ = HC / (yv * yv) / res.y;
+    float fine = 1.0 - smoothstep(0.05, 0.35, pxW);                      // 远处细节淡出，避免闪烁
+    // 基础材质
+    float grain = (n(vec2(x, zw) * 22.0) - 0.5) * 0.16 * fine;
+    vec3 rubber = vec3(0.60, 0.17, 0.12) * (1.0 + grain);
+    float stripe = mod(floor(zw / 6.0), 2.0);
+    vec3 grass = vec3(0.14, 0.36, 0.15) * (0.9 + 0.2 * stripe * fine + (n(vec2(x, zw) * 9.0) - 0.5) * 0.12);
+    vec3 alb = rubber;
+    float lineMask = 0.0;
+    if (x < -0.06) {
+      alb = grass;
+      float side = abs(x + 9.0);                                         // 足球场边线
+      lineMask = smoothstep(0.06 + pxW, 0.06 - pxW, side) * (0.55 + 0.45 * fine);
+    } else if (x < 0.0) {
+      alb = vec3(0.78, 0.78, 0.76);                                      // 内侧路缘
+    } else if (x < 9.76) {
+      float d = abs(x - floor(x / 1.22 + 0.5) * 1.22);
+      lineMask = smoothstep(0.045 + pxW, 0.045 - pxW * 0.5, d) * step(0.5, x);
+      lineMask = mix(lineMask, 0.09, smoothstep(0.02, 0.12, pxW));       // 很远时线条变成平均亮度
+    } else if (x < 11.4) {
+      alb = rubber * 0.92;
+      lineMask = smoothstep(0.05 + pxW, 0.05 - pxW, abs(x - 9.76));
+    } else {
+      alb = vec3(0.10, 0.20, 0.10) * (0.9 + 0.2 * n(vec2(x, zw) * 3.0));
+    }
+    vec3 white = vec3(1.0, 1.0, 0.97);
+    alb = mix(alb, white, clamp(lineMask, 0.0, 1.0));
+    // 光照：蓝调时刻的天光 + 升起后的暖色阳光
+    vec3 amb = mix(vec3(0.40, 0.49, 0.66), vec3(0.68, 0.66, 0.68), k);
+    float sunI = smoothstep(0.25, 0.9, p) * 0.9;
+    vec3 lit = alb * (amb + sunCol * sunI);
+    lit += white * clamp(lineMask, 0.0, 1.0) * 0.12 * (0.5 + 0.5 * k);                 // 白线在任何光线下都醒目
+    // 阳光铺在跑道上：太阳正下方越近越宽的一道光；白线反光更强
+    float path = exp(-pow(uv.x / (0.018 + 0.42 * (-yv)), 2.0));
+    float spec = mix(0.30, 1.0, clamp(lineMask, 0.0, 1.0)) * (x < -0.06 ? 0.25 : 1.0);
+    lit += sunCol * path * spec * rise * (0.25 + 0.75 * exp(yv * 7.0)) * 0.9;
+    // 晨雾：随太阳升起变淡
+    float dens = mix(0.020, 0.006, k);
+    float fog = 1.0 - exp(-z * dens);
+    col = mix(lit, horizonHaze, fog);
+    // 最近处稍暗，增加纵深
+    col *= 0.9 + 0.1 * smoothstep(-0.55, -0.2, uv.y);
+  } else {
+    // ---- 天空 ----
+    col = skyAt(uv, warmC, k);
+    float h = yv;
+    float cl = fbm(vec2(uv.x * 1.6 + t * 0.006, h * 10.0 + 3.0));
+    float cloud = smoothstep(0.56, 0.82, cl) * smoothstep(0.03, 0.10, h) * smoothstep(0.5, 0.18, h);
+    vec3 cloudCol = mix(vec3(0.30, 0.37, 0.50), mix(vec3(0.95, 0.62, 0.52), vec3(1.0, 0.82, 0.62), rise), rise * (0.4 + 0.6 * exp(-uv.x * uv.x * 6.0)));
+    col = mix(col, cloudCol, cloud * 0.75);
+    // 太阳（被树林和楼挡住的部分不可见）
+    float sk = skyline(uv.x);
+    float vis = step(sk, uv.y);
+    float r = length(uv - sun);
+    col += vec3(1.0, 0.55, 0.25) * exp(-r * r * 9.0) * 0.30 * rise;
+    col += vec3(1.0, 0.80, 0.55) * exp(-r * r * 140.0) * 0.55 * rise;
+    float disk = smoothstep(0.030, 0.023, r) * vis * smoothstep(0.12, 0.35, p);
+    col += vec3(2.4, 2.05, 1.5) * disk;
+    col += vec3(1.0, 0.85, 0.62) * exp(-r * r * 1400.0) * 0.9 * rise * vis;
+    // 远处剪影：被雾染成地平线的颜色
+    if (uv.y < sk) col = mix(horizonHaze * 0.72, horizonHaze, 0.45 + 0.3 * smoothstep(HOR, HOR + 0.05, uv.y));
+    // 灯杆与灯：蓝调时刻亮着，天亮后逐个熄灭
+    for (int i = 0; i < 4; i++) {
+      float fi = float(i);
+      float px = (i < 2 ? -1.0 : 1.0) * (0.105 + 0.07 * mod(fi, 2.0));
+      float top = HOR + 0.11 - 0.025 * mod(fi, 2.0);
+      float pole = smoothstep(0.0022, 0.0012, abs(uv.x - px)) * step(HOR, uv.y) * step(uv.y, top);
+      col = mix(col, horizonHaze * 0.6, pole * 0.85);
+      float head = smoothstep(0.0075, 0.005, abs(uv.x - px)) * smoothstep(0.004, 0.002, abs(uv.y - top));
+      float on = 1.0 - smoothstep(0.35 + fi * 0.06, 0.55 + fi * 0.06, p);
+      vec2 lp = uv - vec2(px, top);
+      col = mix(col, vec3(1.0, 0.97, 0.9) * (0.4 + 0.6 * on), head);
+      col += vec3(0.95, 0.95, 1.0) * exp(-dot(lp, lp) * 1800.0) * 0.55 * on;
+    }
+  }
+  // 镜头光斑（很淡）
+  vec2 toC = -sun;
+  for (int j = 1; j <= 3; j++) {
+    vec2 gp = sun + toC * (0.55 * float(j));
+    float g = exp(-pow(length(uv - gp) * (26.0 - float(j) * 5.0), 2.0));
+    col += vec3(1.0, 0.72, 0.45) * g * 0.05 * rise;
+  }
+  // 暗角、颗粒、柔和高光
+  vec2 sv = gl_FragCoord.xy / res - 0.5;
+  col *= mix(0.74, 1.0, smoothstep(0.9, 0.25, length(sv * vec2(0.9, 1.0))));
+  col += (h(gl_FragCoord.xy + fract(t) * 91.0) - 0.5) * 0.02;
+  col = col - max(col - 0.85, 0.0) * 0.55;
   gl_FragColor = vec4(col, 1.0);
 }`;
   // ---------- 光带（举重） ----------
@@ -107,7 +169,7 @@ void main(){
       this.reduced = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
       this.visible = true; this.t0 = performance.now();
       this.p = this.intro && !this.reduced ? 0 : 0.86; this.pTarget = 1; this.pStart = null;
-      this.introDur = this.intro && !this.reduced ? 6.5 : 1.2;
+      this.introDur = this.intro && !this.reduced ? 7.0 : 1.2;
       const gl = canvas.getContext("webgl", { antialias: false, powerPreference: "low-power" });
       this.gl = gl;
       if (gl) {
@@ -115,7 +177,7 @@ void main(){
           const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
           gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
           this.progSun = this.program(FS_SUN); this.progRib = this.program(FS_RIB);
-        } catch (e) { this.gl = null; }
+        } catch (e) { this.gl = null; window.__coverErr = String(e && e.message || e); }
       }
       if (!this.gl) { canvas.style.background = "radial-gradient(120% 70% at 50% 60%, #6b3a1c 0%, #1a1410 50%, #050506 100%)"; this.reveal(); }
       this.resize();
@@ -123,7 +185,7 @@ void main(){
       document.addEventListener("visibilitychange", () => this.kick());
       if ("IntersectionObserver" in window) new IntersectionObserver(es => { this.visible = es[0].isIntersecting; this.kick(); }).observe(canvas);
       canvas.parentElement.addEventListener("click", () => { if (this.p < 0.98 && this.pStart != null) { this.skip = true; } });
-      this.loadImage();
+      this.pStart = performance.now();
     }
     program(fs) {
       const gl = this.gl;
@@ -165,7 +227,7 @@ void main(){
     frame(ts) {
       const gl = this.gl; if (!gl) return;
       const t = (ts - this.t0) / 1000;
-      const sunrise = this.world === "sprint" && this.tex && !this.imgFailed;
+      const sunrise = this.world === "sprint";
       if (sunrise && this.pStart != null) {
         let x = Math.min(1, (ts - this.pStart) / 1000 / this.introDur);
         if (this.skip) { this.skipAt = this.skipAt || ts; this.pSkip0 = this.pSkip0 ?? this.p; x = 1; }
@@ -178,11 +240,7 @@ void main(){
       gl.enableVertexAttribArray(P.loc); gl.vertexAttribPointer(P.loc, 2, gl.FLOAT, false, 0, 0);
       gl.uniform2f(P.u.res, this.c.width, this.c.height);
       gl.uniform1f(P.u.t, this.reduced ? 5 : t);
-      if (sunrise) {
-        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.tex); gl.uniform1i(P.u.img, 0);
-        gl.uniform1f(P.u.p, this.p); gl.uniform1f(P.u.imgA, this.imgA);
-        gl.uniform1f(P.u.zoom, 1.0 + 0.12 * (1 - this.p));
-      }
+      if (sunrise) gl.uniform1f(P.u.p, this.p);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
   }

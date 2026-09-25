@@ -1610,7 +1610,7 @@
     const hero = $("hero");
     let seen = false; try { seen = sessionStorage.getItem("cm_intro") === "1"; sessionStorage.setItem("cm_intro", "1"); } catch (e) { /* 忽略 */ }
     const reveal = () => hero.classList.remove("intro");
-    if (window.Cover) { cover = new Cover($("heroCanvas"), { world: localStorage.getItem("cm_world") || "sprint", imageUrl: window.CM_SUNRISE || "img/sunrise.jpg", intro: !seen, onReveal: reveal }); cover.start(); }
+    if (window.Cover) { cover = new Cover($("heroCanvas"), { world: localStorage.getItem("cm_world") || "sprint", intro: !seen, onReveal: reveal }); cover.start(); }
     else reveal();
     setTimeout(reveal, seen ? 1500 : 9000);
   }
