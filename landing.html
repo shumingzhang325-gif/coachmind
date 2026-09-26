@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>知练 · 动起来</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;900&family=Noto+Sans+SC:wght@400;500;700;900&family=ZCOOL+QingKe+HuangYou&display=swap">
+<style>
+/* ---------- 色彩：日出田径场 ---------- */
+:root {
+  --ground: #F5F8FC;          /* 晴空白 */
+  --paper: #FFFFFF;
+  --ink: #0F1D3A;             /* 深海军蓝，替代纯黑 */
+  --ink-2: #4A5673;
+  --ink-3: #8A94AB;
+  --line: rgba(15, 29, 58, .10);
+  --clay: #FF4F2E;            /* 跑道红 */
+  --clay-deep: #E23A1C;
+  --sun: #FFB81C;             /* 日光黄 */
+  --sun-soft: #FFE27A;
+  --turf: #13B86B;            /* 草场绿 */
+  --sky: #2E6BFF;             /* 晴空蓝 */
+  --dawn-top: #D9E8FF;
+  --dawn-mid: #FFF3E0;
+  --dawn-bot: #FFE1B8;
+  --track: #E4492B;
+  --shadow: 0 18px 40px -18px rgba(15, 29, 58, .35);
+  --f-display: "ZCOOL QingKe HuangYou", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --f-num: "Big Shoulders Display", "Noto Sans SC", "Arial Narrow", sans-serif;
+  --f-body: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --gutter: clamp(16px, 4vw, 48px);
+  --max: 1200px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #0A1328; --paper: #111D3A; --ink: #F3F5FA; --ink-2: #B3BDD3; --ink-3: #7E8AA6;
+    --line: rgba(243, 245, 250, .12);
+    --clay: #FF6A4A; --clay-deep: #FF4F2E; --sun: #FFC24A; --sun-soft: #FFE08A; --turf: #2FD58A; --sky: #7DA2FF;
+    --dawn-top: #0A1328; --dawn-mid: #24203F; --dawn-bot: #5A3026; --track: #C83E24;
+    --shadow: 0 18px 40px -18px rgba(0, 0, 0, .7);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0A1328; --paper: #111D3A; --ink: #F3F5FA; --ink-2: #B3BDD3; --ink-3: #7E8AA6;
+  --line: rgba(243, 245, 250, .12);
+  --clay: #FF6A4A; --clay-deep: #FF4F2E; --sun: #FFC24A; --sun-soft: #FFE08A; --turf: #2FD58A; --sky: #7DA2FF;
+  --dawn-top: #0A1328; --dawn-mid: #24203F; --dawn-bot: #5A3026; --track: #C83E24;
+  --shadow: 0 18px 40px -18px rgba(0, 0, 0, .7);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font: 400 16px/1.7 var(--f-body); -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+img { max-width: 100%; display: block; }
+a { color: inherit; }
+h1, h2, h3 { margin: 0; text-wrap: balance; font-weight: 400; }
+p { margin: 0; }
+:focus-visible { outline: 3px solid var(--sky); outline-offset: 3px; border-radius: 6px; }
+.wrap { max-width: var(--max); margin-inline: auto; padding-inline: var(--gutter); }
+.eyebrow {
+  font: 700 13px/1 var(--f-body); letter-spacing: .18em; text-transform: uppercase; color: var(--clay);
+  display: inline-flex; align-items: center; gap: 10px;
+}
+.eyebrow::before { content: ""; width: 22px; height: 3px; border-radius: 3px; background: currentColor; }
+.h2 { font-family: var(--f-display); font-size: clamp(36px, 5.2vw, 64px); line-height: 1.1; letter-spacing: .02em; }
+.lede { color: var(--ink-2); max-width: 36em; font-size: 17px; }
+.sec-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px 40px; margin-bottom: 36px; }
+.sec-head > div { display: grid; gap: 14px; }
+section { padding-block: clamp(64px, 9vw, 120px); }
+
+/* ---------- 按钮 ---------- */
+.btn {
+  display: inline-flex; align-items: center; gap: 10px; border: 0; cursor: pointer; text-decoration: none;
+  font: 700 16px/1 var(--f-body); padding: 17px 28px; border-radius: 999px;
+  transition: transform .2s cubic-bezier(.3, 1.6, .5, 1), box-shadow .2s, background .2s;
+}
+.btn:hover { transform: translateY(-3px); }
+.btn:active { transform: translateY(0) scale(.97); }
+.btn-primary { background: var(--clay); color: #fff; box-shadow: 0 14px 28px -12px var(--clay); }
+.btn-primary:hover { box-shadow: 0 20px 34px -12px var(--clay); }
+.btn-ghost { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 2px var(--ink); }
+.btn .arr { transition: transform .2s; }
+.btn:hover .arr { transform: translateX(4px); }
+
+/* ---------- 导航 ---------- */
+.nav {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px);
+  background: color-mix(in srgb, var(--ground) 72%, transparent);
+  border-bottom: 1px solid var(--line);
+}
+.nav .wrap { display: flex; align-items: center; gap: 28px; height: 68px; }
+.logo { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 900 20px/1 var(--f-body); letter-spacing: .04em; }
+.logo small { font: 700 13px/1 var(--f-num); letter-spacing: .12em; color: var(--ink-3); }
+.logo svg { width: 34px; height: 34px; }
+.nav ul { display: flex; gap: 26px; list-style: none; margin: 0 0 0 auto; padding: 0; font-weight: 500; font-size: 15px; }
+.nav ul a { text-decoration: none; color: var(--ink-2); transition: color .2s; }
+.nav ul a:hover { color: var(--clay); }
+.nav .btn { padding: 11px 20px; font-size: 14px; }
+@media (max-width: 760px) { .nav ul { display: none; } .nav .btn { margin-left: auto; } }
+
+/* ---------- 封面 ---------- */
+.hero {
+  position: relative; overflow: hidden;
+  background: linear-gradient(180deg, var(--dawn-top) 0%, var(--dawn-mid) 58%, var(--dawn-bot) 100%);
+  padding-block: clamp(40px, 6vw, 80px) 0;
+}
+.hero-grid { display: grid; grid-template-columns: 1.08fr 1fr; align-items: center; gap: clamp(24px, 4vw, 64px); }
+.hero-copy { display: grid; gap: 26px; position: relative; z-index: 2; }
+.hero h1 {
+  font-family: var(--f-display); font-size: clamp(50px, 6.6vw, 100px); line-height: 1.04; letter-spacing: .01em;
+}
+.hero h1 .ln { display: block; white-space: nowrap; animation: rise .9s cubic-bezier(.2, 1.3, .4, 1) both; }
+.hero h1 .ln:nth-child(2) { animation-delay: .12s; }
+.glow { position: relative; display: inline-block; color: var(--clay); z-index: 0; }
+.glow::before {
+  content: ""; position: absolute; z-index: -1; left: 50%; top: 52%; width: 1.25em; height: 1.25em;
+  transform: translate(-50%, -50%); border-radius: 50%;
+  background: radial-gradient(circle, var(--sun-soft) 0 45%, color-mix(in srgb, var(--sun) 55%, transparent) 62%, transparent 72%);
+  animation: pulse 3.2s ease-in-out infinite;
+}
+.hero .lede { font-size: clamp(17px, 1.6vw, 20px); animation: rise .9s .24s cubic-bezier(.2, 1.3, .4, 1) both; }
+.hero .cta { display: flex; flex-wrap: wrap; gap: 14px; animation: rise .9s .34s cubic-bezier(.2, 1.3, .4, 1) both; }
+.proof { display: flex; align-items: center; gap: 14px; font-size: 14px; color: var(--ink-2); animation: rise .9s .44s both; }
+.faces { display: flex; }
+.faces span {
+  width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; margin-left: -10px;
+  font: 700 14px/1 var(--f-body); color: #fff; border: 3px solid var(--dawn-mid);
+}
+.faces span:first-child { margin-left: 0; }
+.proof b { color: var(--ink); font: 900 20px/1 var(--f-num); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+
+.sun-stage { position: relative; width: 100%; max-width: 560px; aspect-ratio: 1; justify-self: center; animation: sunrise 1.4s cubic-bezier(.2, .9, .3, 1) both; }
+.sun-stage canvas { position: absolute; inset: -22%; width: 144%; height: 144%; pointer-events: none; }
+.sun-disc {
+  position: absolute; inset: 7%; border-radius: 50%;
+  background: radial-gradient(circle at 50% 42%, var(--sun-soft) 0%, var(--sun) 48%, var(--clay) 100%);
+  box-shadow: 0 0 90px 24px color-mix(in srgb, var(--sun) 55%, transparent);
+}
+.sun-photo { position: absolute; inset: 13%; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 6px color-mix(in srgb, #fff 55%, transparent); }
+.sun-photo img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 34%; transform: scale(1.35); transform-origin: 50% 36%; }
+.orbit { position: absolute; inset: 1%; border-radius: 50%; border: 2px dashed color-mix(in srgb, var(--ink) 18%, transparent); animation: spin 48s linear infinite; }
+.orbit::after { content: ""; position: absolute; top: -9px; left: calc(50% - 9px); width: 18px; height: 18px; border-radius: 50%; background: #D8F24A; box-shadow: inset -3px -3px 0 rgba(0, 0, 0, .12), 0 4px 10px rgba(0, 0, 0, .2); }
+.chip {
+  position: absolute; z-index: 3; display: flex; align-items: center; gap: 10px;
+  background: var(--paper); color: var(--ink); border-radius: 16px; padding: 10px 14px 10px 10px;
+  box-shadow: var(--shadow); font-size: 13px; line-height: 1.3; white-space: nowrap;
+  animation: float 5s ease-in-out infinite;
+}
+.chip i { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; flex: none; font-style: normal; }
+.chip i svg { width: 20px; height: 20px; }
+.chip b { display: block; font: 900 20px/1 var(--f-num); letter-spacing: .02em; }
+.chip-a { top: 9%; left: -4%; }
+.chip-b { bottom: 13%; right: -3%; animation-delay: -1.7s; }
+.chip-c { bottom: 2%; left: 8%; animation-delay: -3.2s; }
+.beat { animation: beat 1.1s ease-in-out infinite; transform-origin: center; }
+
+@media (max-width: 900px) {
+  .hero-grid { grid-template-columns: 1fr; }
+  .sun-stage { max-width: 420px; margin-top: 8px; }
+  .chip-a { left: 0; } .chip-b { right: 0; }
+}
+
+/* ---------- 跑道滚动带 ---------- */
+.track {
+  position: relative; z-index: 2; margin-top: clamp(28px, 4vw, 56px); overflow: hidden;
+  background:
+    linear-gradient(rgba(255,255,255,.9), rgba(255,255,255,.9)) 0 0 / 100% 3px no-repeat,
+    linear-gradient(rgba(255,255,255,.9), rgba(255,255,255,.9)) 0 100% / 100% 3px no-repeat,
+    repeating-linear-gradient(90deg, transparent 0 34px, rgba(255,255,255,.9) 34px 58px) 0 50% / 100% 2px no-repeat,
+    var(--track);
+  color: #fff; padding-block: 12px;
+}
+.track::after { /* 一束晨光沿跑道扫过 */
+  content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(255, 226, 122, .45) 50%, transparent 70%);
+  transform: translateX(-100%); animation: sweep 6s ease-in-out infinite; pointer-events: none;
+}
+.lane { display: flex; width: max-content; animation: marquee 42s linear infinite; }
+.lane span { display: inline-flex; align-items: center; gap: 22px; padding-right: 22px; font: 900 clamp(18px, 2.2vw, 26px)/2.2 var(--f-body); letter-spacing: .06em; white-space: nowrap; }
+.lane em { font-style: normal; font-family: var(--f-num); font-size: 1.2em; letter-spacing: .04em; }
+.lane svg { width: 22px; height: 22px; flex: none; }
+
+/* ---------- 运动卡片 ---------- */
+.bento { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 250px; gap: 16px; }
+.card {
+  position: relative; overflow: hidden; border-radius: 22px; color: #fff; text-decoration: none; isolation: isolate;
+  display: flex; flex-direction: column; justify-content: flex-end; padding: 22px; gap: 6px;
+  transition: transform .35s cubic-bezier(.2, 1.2, .4, 1), box-shadow .35s;
+}
+.card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; transition: transform .8s cubic-bezier(.2, .8, .3, 1); }
+.card::before { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, rgba(10, 19, 40, 0) 35%, rgba(10, 19, 40, .82) 100%); }
+.card:hover { transform: translateY(-6px); box-shadow: var(--shadow); }
+.card:hover img { transform: scale(1.07); }
+.card h3 { font-family: var(--f-display); font-size: 36px; line-height: 1; letter-spacing: .04em; }
+.card p { font-size: 15px; opacity: .92; }
+.card .meta { position: absolute; top: 16px; left: 16px; font: 700 12px/1 var(--f-body); letter-spacing: .04em; padding: 8px 11px; border-radius: 999px; background: rgba(255, 255, 255, .92); color: #0F1D3A; }
+.card .meta b { font-family: var(--f-num); font-size: 14px; }
+.card .go {
+  position: absolute; top: 14px; right: 14px; width: 40px; height: 40px; border-radius: 50%; background: var(--sun); color: #0F1D3A;
+  display: grid; place-items: center; transform: scale(.6) rotate(-45deg); opacity: 0; transition: .3s cubic-bezier(.2, 1.4, .4, 1);
+}
+.card:hover .go, .card:focus-visible .go { transform: scale(1) rotate(0); opacity: 1; }
+.c-bball { grid-row: span 2; }
+.c-bball img { object-position: 40% 30%; }
+.c-volley { grid-column: span 2; }
+.c-dive img { object-position: 50% 40%; }
+@media (max-width: 900px) { .bento { grid-template-columns: repeat(2, 1fr); } .c-volley { grid-column: span 2; } }
+@media (max-width: 560px) { .bento { grid-template-columns: 1fr; grid-auto-rows: 220px; } .c-bball { grid-row: span 2; } .c-volley { grid-column: auto; } }
+
+/* ---------- 能量站 ---------- */
+.energy { background: var(--paper); border-block: 1px solid var(--line); }
+.energy-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px; }
+.checkin {
+  min-width: 0; position: relative; overflow: hidden; border-radius: 28px; padding: clamp(24px, 4vw, 44px);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--sun) 22%, var(--paper)), color-mix(in srgb, var(--clay) 12%, var(--paper)));
+  display: grid; grid-template-columns: auto 1fr; gap: 28px 36px; align-items: center;
+}
+.stamp {
+  width: 168px; height: 168px; border-radius: 50%; border: 0; cursor: pointer; position: relative;
+  background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 3px var(--ink-3), var(--shadow);
+  font: 400 40px/1 var(--f-display); letter-spacing: .08em;
+  transition: transform .3s cubic-bezier(.2, 1.6, .4, 1), background .3s, box-shadow .3s;
+}
+.stamp::before { content: ""; position: absolute; inset: -10px; border-radius: 50%; border: 2px dashed var(--clay); animation: spin 18s linear infinite; }
+.stamp:hover { transform: scale(1.05) rotate(-3deg); }
+.stamp small { display: block; font: 500 13px/1.6 var(--f-body); letter-spacing: .08em; color: var(--ink-2); margin-top: 6px; }
+.stamp.done { background: radial-gradient(circle at 50% 40%, var(--sun-soft), var(--sun) 55%, var(--clay)); color: #0F1D3A; box-shadow: 0 0 60px 8px color-mix(in srgb, var(--sun) 60%, transparent); }
+.stamp.done small { color: #0F1D3A; }
+.stamp.done::before { border-color: var(--sun); }
+.checkin-body { display: grid; gap: 14px; }
+.checkin-body h3 { font-family: var(--f-display); font-size: clamp(30px, 3.4vw, 42px); line-height: 1.1; }
+.msg { color: var(--ink-2); min-height: 3.4em; }
+.week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; max-width: 380px; }
+.day { display: grid; justify-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.day i { width: 100%; max-width: 40px; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--ink) 8%, transparent); font-style: normal; color: #fff; }
+.day.on i { background: var(--turf); }
+.day.today i { box-shadow: 0 0 0 3px var(--clay); background: transparent; }
+.day.today.on i { background: var(--clay); box-shadow: 0 0 0 3px color-mix(in srgb, var(--clay) 35%, transparent); }
+.day i svg { width: 16px; height: 16px; }
+.note { font-size: 12px; color: var(--ink-3); }
+@media (max-width: 560px) { .stamp { width: 144px; height: 144px; } .checkin { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; } .week { margin-inline: auto; } }
+
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(12px, 2vw, 20px); }
+.stat { border-radius: 24px; padding: 24px; display: grid; gap: 6px; align-content: end; background: var(--ground); border: 1px solid var(--line); }
+.stat .n { font: 900 clamp(34px, 5vw, 60px)/1 var(--f-num); letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+.stat .n small { font-size: .45em; margin-left: 4px; color: var(--ink-2); }
+.stat .l { font-size: 14px; color: var(--ink-2); }
+.stat.big { grid-column: span 2; background: var(--sky); color: #fff; border: 0; position: relative; overflow: hidden; }
+.stat.big .l, .stat.big .n small { color: rgba(255, 255, 255, .85); }
+.stat.big::after { content: ""; position: absolute; right: -40px; top: -40px; width: 180px; height: 180px; border-radius: 50%; background: radial-gradient(circle, var(--sun) 0 40%, transparent 41%), repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--sun) 70%, transparent) 0 6deg, transparent 6deg 18deg); mask: radial-gradient(circle, #000 0 70%, transparent 71%); animation: spin 30s linear infinite; }
+.stat .up { color: var(--turf); font-weight: 700; font-size: 13px; }
+.stat.big .up { color: #D8FFE9; }
+@media (max-width: 900px) { .energy-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- 100 天阶梯 ---------- */
+.stairs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; align-items: end; }
+.step { display: grid; gap: 14px; }
+.step .txt { display: grid; gap: 6px; }
+.step .d { font: 900 15px/1 var(--f-num); letter-spacing: .14em; color: var(--ink-3); }
+.step .d b { font-size: 46px; letter-spacing: .01em; color: var(--ink); margin-right: 4px; }
+.step h3 { font: 700 19px/1.35 var(--f-body); }
+.step p { font-size: 14px; color: var(--ink-2); }
+.block { border-radius: 18px 18px 6px 6px; position: relative; }
+.step:nth-child(1) .block { height: 60px; background: var(--sky); }
+.step:nth-child(2) .block { height: 120px; background: var(--turf); }
+.step:nth-child(3) .block { height: 180px; background: var(--sun); }
+.step:nth-child(4) .block { height: 240px; background: var(--clay); }
+.step:nth-child(4) .block::after {
+  content: ""; position: absolute; left: 50%; top: -34px; width: 56px; height: 56px; transform: translateX(-50%); border-radius: 50%;
+  background: radial-gradient(circle, var(--sun-soft) 0 38%, var(--sun) 39% 55%, transparent 56%), repeating-conic-gradient(var(--sun) 0 8deg, transparent 8deg 30deg);
+  mask: radial-gradient(circle, #000 0 70%, transparent 71%); animation: spin 14s linear infinite;
+}
+@media (max-width: 760px) {
+  .stairs { grid-template-columns: 1fr; gap: 12px; }
+  .step { grid-template-columns: auto 1fr; align-items: center; gap: 16px; }
+  .step .block { order: -1; width: 14px; border-radius: 8px; }
+  .step:nth-child(1) .block { height: 70px; } .step:nth-child(2) .block { height: 90px; } .step:nth-child(3) .block { height: 110px; } .step:nth-child(4) .block { height: 130px; }
+  .step:nth-child(4) .block::after { display: none; }
+}
+
+/* ---------- 语录横幅 ---------- */
+.quote {
+  position: relative; color: #fff; padding-block: clamp(90px, 12vw, 160px); overflow: hidden;
+  background: #1a1a2e url("img/sport-distance.jpg") center 45% / cover no-repeat;
+}
+.quote::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(10, 19, 40, .82) 0%, rgba(10, 19, 40, .35) 60%, rgba(255, 150, 60, .15) 100%); }
+.quote .wrap { position: relative; display: grid; gap: 22px; }
+.quote blockquote { margin: 0; font-family: var(--f-display); font-size: clamp(40px, 6.4vw, 84px); line-height: 1.12; max-width: 11em; }
+.quote blockquote span { color: var(--sun); }
+.quote cite { font-style: normal; font-size: 15px; opacity: .85; }
+
+/* ---------- 活动 ---------- */
+.events { display: grid; gap: 14px; }
+.event {
+  display: grid; grid-template-columns: 110px 1fr 220px auto; align-items: center; gap: 24px;
+  padding: 20px 24px; border-radius: 22px; background: var(--paper); border: 1px solid var(--line);
+  transition: transform .25s, box-shadow .25s;
+}
+.event:hover { transform: translateX(6px); box-shadow: var(--shadow); }
+.date { display: grid; justify-items: start; line-height: 1; gap: 6px; }
+.date b { font: 900 44px/1 var(--f-num); letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+.date span { font-size: 13px; color: var(--clay); font-weight: 700; }
+.event h3 { font: 700 19px/1.4 var(--f-body); }
+.event .where { font-size: 14px; color: var(--ink-2); }
+.seats { display: grid; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.bar { height: 8px; border-radius: 8px; background: color-mix(in srgb, var(--ink) 9%, transparent); overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--sun), var(--clay)); transition: width .6s cubic-bezier(.2, 1, .3, 1); }
+.join { padding: 13px 22px; font-size: 15px; min-width: 112px; justify-content: center; }
+.join.joined { background: var(--turf); box-shadow: 0 14px 28px -12px var(--turf); }
+@media (max-width: 900px) {
+  .event { grid-template-columns: auto minmax(0, 1fr); gap: 14px 18px; padding: 18px; }
+  .date b { font-size: 34px; }
+  .seats { grid-column: 1 / -1; }
+  .join { grid-column: 1 / -1; }
+}
+
+/* ---------- 结尾号召 ---------- */
+.finale { position: relative; overflow: hidden; text-align: center; padding-bottom: 0; background: linear-gradient(180deg, var(--ground), var(--dawn-bot)); }
+.finale .wrap { display: grid; justify-items: center; gap: 22px; position: relative; z-index: 2; }
+.finale .h2 { font-size: clamp(38px, 6vw, 76px); max-width: 12em; }
+.horizon { position: relative; height: clamp(160px, 22vw, 260px); margin-top: 40px; }
+.horizon::before {
+  content: ""; position: absolute; left: 50%; bottom: -60%; width: min(760px, 120vw); aspect-ratio: 1; transform: translateX(-50%); border-radius: 50%;
+  background: radial-gradient(circle, var(--sun-soft) 0 22%, var(--sun) 34%, color-mix(in srgb, var(--clay) 80%, transparent) 46%, transparent 47%),
+              repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--sun) 50%, transparent) 0 4deg, transparent 4deg 15deg);
+  mask: radial-gradient(circle, #000 0 46%, rgba(0,0,0,.6) 47%, transparent 70%);
+  animation: spin 80s linear infinite;
+}
+.horizon::after { content: ""; position: absolute; inset: auto 0 0; height: 46px; background: repeating-linear-gradient(90deg, transparent 0 34px, rgba(255,255,255,.9) 34px 58px) 0 50% / 100% 2px no-repeat, linear-gradient(rgba(255,255,255,.9), rgba(255,255,255,.9)) 0 0 / 100% 3px no-repeat, var(--track); }
+
+footer { background: var(--ink); color: color-mix(in srgb, var(--ground) 80%, transparent); padding-block: 36px; font-size: 13px; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; justify-content: space-between; align-items: center; }
+footer b { color: var(--ground); font-size: 15px; }
+
+#confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50; }
+
+/* ---------- 动效 ---------- */
+@keyframes rise { from { transform: translateY(28px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes sunrise { from { transform: translateY(18%) scale(.92); opacity: .2; } to { transform: none; opacity: 1; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes float { 50% { transform: translateY(-10px); } }
+@keyframes pulse { 50% { transform: translate(-50%, -50%) scale(1.12); } }
+@keyframes beat { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.25); } 30% { transform: scale(1); } 45% { transform: scale(1.15); } }
+@keyframes marquee { to { transform: translateX(-50%); } }
+@keyframes sweep { 0% { transform: translateX(-100%); } 60%, 100% { transform: translateX(100%); } }
+.stat .n.bump { animation: bump .5s cubic-bezier(.2, 1.8, .4, 1); }
+@keyframes bump { 40% { transform: scale(1.06); color: var(--clay); } }
+.stat.big .n.bump { animation-name: bumpw; }
+@keyframes bumpw { 40% { transform: scale(1.06); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor"/><g stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></g></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.1 0 3.6 1.2 5.3 3.1 1.7-1.9 3.2-3.1 5.3-3.1 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z" fill="currentColor"/></symbol>
+  <symbol id="i-jump" viewBox="0 0 24 24"><path d="M3 20h18M6 16c3-8 9-11 13-11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="19" cy="5" r="2.2" fill="currentColor"/></symbol>
+  <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 22c4.4 0 7-2.9 7-6.6 0-4.3-3.4-6.4-4.4-10.4-2.5 1.6-3.3 4-3 6.2-1.2-.8-2-2.2-2.1-3.7C7.3 9.4 5 12 5 15.4 5 19.1 7.6 22 12 22z" fill="currentColor"/></symbol>
+</svg>
+
+<nav class="nav" aria-label="主导航">
+  <div class="wrap">
+    <a class="logo" href="#top" aria-label="知练 首页">
+      <svg viewBox="0 0 40 40" aria-hidden="true">
+        <circle cx="20" cy="22" r="10" fill="var(--sun)"/>
+        <path d="M4 30h32" stroke="var(--clay)" stroke-width="4" stroke-linecap="round"/>
+        <g stroke="var(--sun)" stroke-width="3" stroke-linecap="round"><path d="M20 4v4M8 9l2.6 2.6M32 9l-2.6 2.6"/></g>
+      </svg>
+      知练 <small>COACHMIND</small>
+    </a>
+    <ul>
+      <li><a href="#sports">选运动</a></li>
+      <li><a href="#energy">每日打卡</a></li>
+      <li><a href="#journey">100 天</a></li>
+      <li><a href="#events">一起练</a></li>
+    </ul>
+    <a class="btn btn-primary" href="#finale">免费加入</a>
+  </div>
+</nav>
+
+<main id="top">
+  <!-- ========== 封面 ========== -->
+  <header class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <span class="eyebrow">全民运动 · 每天都是起跑线</span>
+        <h1><span class="ln">动起来，</span><span class="ln">世界就<span class="glow">亮</span>了。</span></h1>
+        <p class="lede">从第一步到第一名，每一滴汗都算数。不和别人比，只要今天的你，比昨天多跑一步、多跳一厘米。</p>
+        <div class="cta">
+          <a class="btn btn-primary" href="#energy">今天就出发 <svg class="arr" width="20" height="20"><use href="#i-arrow"/></svg></a>
+          <a class="btn btn-ghost" href="#sports">看看大家在练什么</a>
+        </div>
+        <div class="proof">
+          <div class="faces" aria-hidden="true">
+            <span style="background:#FF4F2E">林</span><span style="background:#13B86B">阿</span><span style="background:#2E6BFF">周</span><span style="background:#FFB81C;color:#0F1D3A">小</span>
+          </div>
+          <div>今天已有 <b id="todayCount">12,480</b> 人完成训练</div>
+        </div>
+      </div>
+
+      <div class="sun-stage" aria-label="跳远运动员在朝阳中腾空">
+        <canvas id="rays" aria-hidden="true"></canvas>
+        <div class="orbit" aria-hidden="true"></div>
+        <div class="sun-disc" aria-hidden="true"></div>
+        <div class="sun-photo"><img src="img/sport-longjump.jpg" alt="跳远运动员在沙坑上方腾空，双腿前伸"></div>
+        <div class="chip chip-a"><i style="background:color-mix(in srgb,var(--sky) 16%,transparent);color:var(--sky)"><svg><use href="#i-jump"/></svg></i><div>跳远 · 个人最好<b>6.12 m</b></div></div>
+        <div class="chip chip-b"><i style="background:color-mix(in srgb,var(--clay) 16%,transparent);color:var(--clay)"><svg class="beat"><use href="#i-heart"/></svg></i><div>心率 · 状态正佳<b>152 bpm</b></div></div>
+        <div class="chip chip-c"><i style="background:color-mix(in srgb,var(--sun) 25%,transparent);color:var(--clay-deep)"><svg><use href="#i-flame"/></svg></i><div>连续打卡<b>21 天</b></div></div>
+      </div>
+    </div>
+
+    <div class="track" aria-label="每天进步 1%，一年后是 37.8 倍的自己">
+      <div class="lane" aria-hidden="true">
+        <span>每天进步 1% <svg><use href="#i-sun"/></svg> <em>1.01³⁶⁵ ≈ 37.8</em> <svg><use href="#i-sun"/></svg> 跑 · 跳 · 投 · 游 · 骑 · 攀 <svg><use href="#i-sun"/></svg> 汗水不会说谎 <svg><use href="#i-sun"/></svg> 你比想象中更强 <svg><use href="#i-sun"/></svg></span>
+        <span>每天进步 1% <svg><use href="#i-sun"/></svg> <em>1.01³⁶⁵ ≈ 37.8</em> <svg><use href="#i-sun"/></svg> 跑 · 跳 · 投 · 游 · 骑 · 攀 <svg><use href="#i-sun"/></svg> 汗水不会说谎 <svg><use href="#i-sun"/></svg> 你比想象中更强 <svg><use href="#i-sun"/></svg></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========== 选运动 ========== -->
+  <section id="sports">
+    <div class="wrap">
+      <div class="sec-head">
+        <div>
+          <span class="eyebrow">选一项，今天就开始</span>
+          <h2 class="h2">总有一项运动，<br>让你眼睛发光</h2>
+        </div>
+        <p class="lede">热量按 60 kg 成人、中等强度估算，只作参考。最重要的数字只有一个：你出发了。</p>
+      </div>
+      <div class="bento">
+        <a class="card c-bball" href="#events"><img src="img/sport-basketball.jpg" alt="篮球运动员单手持球腾空上篮" loading="lazy"><span class="meta">约 <b>480</b> kcal/小时</span><span class="go"><svg width="20" height="20"><use href="#i-arrow"/></svg></span><h3>篮球</h3><p>起跳那一刻，你就是自己的高光。</p></a>
+        <a class="card c-volley" href="#events"><img src="img/sport-volleyball.jpg" alt="夕阳下的沙滩排球，队员跃起扣球" loading="lazy"><span class="meta">约 <b>480</b> kcal/小时</span><span class="go"><svg width="20" height="20"><use href="#i-arrow"/></svg></span><h3>沙滩排球</h3><p>叫上朋友，把太阳扣过网。</p></a>
+        <a class="card" href="#events"><img src="img/sport-tennis.jpg" alt="红土网球场上的发球瞬间" loading="lazy"><span class="meta">约 <b>440</b> kcal/小时</span><span class="go"><svg width="20" height="20"><use href="#i-arrow"/></svg></span><h3>网球</h3><p>每一次抛球，都是新的开始。</p></a>
+        <a class="card" href="#events"><img src="img/sport-distance.jpg" alt="清晨跑者迎着朝阳奔跑" loading="lazy"><span class="meta">5 km · 约 <b>30</b> 分钟</span><span class="go"><svg width="20" height="20"><use href="#i-arrow"/></svg></span><h3>晨跑</h3><p>5 公里，给今天一个好开头。</p></a>
+        <a class="card" href="#events"><img src="img/hero-sprint.jpg" alt="三名跑者在蓝色晨光中冲刺" loading="lazy"><span class="meta">8 组 × <b>60</b> m</span><span class="go"><svg width="20" height="20"><use href="#i-arrow"/></svg></span><h3>冲刺跑</h3><p>十秒钟，全力以赴。</p></a>
+        <a class="card c-dive" href="#events"><img src="img/sport-diving.jpg" alt="潜水者在水下朝着光亮的水面上浮" loading="lazy"><span class="meta">约 <b>420</b> kcal/小时</span><span class="go"><svg width="20" height="20"><use href="#i-arrow"/></svg></span><h3>游泳</h3><p>向着光，往上游。</p></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 能量站 ========== -->
+  <section id="energy" class="energy">
+    <div class="wrap">
+      <div class="sec-head">
+        <div>
+          <span class="eyebrow">每日能量站</span>
+          <h2 class="h2">今天，你动了吗？</h2>
+        </div>
+        <p class="lede">哪怕只是下楼快走十分钟，也值得盖一个太阳。</p>
+      </div>
+      <div class="energy-grid">
+        <div class="checkin">
+          <button class="stamp" id="stamp" type="button" aria-pressed="false">打卡<small>点一下，点亮今天</small></button>
+          <div class="checkin-body">
+            <h3 id="streakTitle">本周已坚持 3 天</h3>
+            <p class="msg" id="msg">再坚持一下，第 4 个太阳就在前面。</p>
+            <div class="week" id="week"></div>
+            <p class="note" id="weekNote">本周前几天为示例数据，打卡记录只保存在你的浏览器里。</p>
+          </div>
+        </div>
+        <div class="stats">
+          <div class="stat big">
+            <span class="up">▲ 比昨天多 8%</span>
+            <span class="n" id="stat1">12,480</span>
+            <span class="l">今天完成的训练（社区示例数据）</span>
+          </div>
+          <div class="stat">
+            <span class="n" id="stat2">86,215<small>km</small></span>
+            <span class="l">大家今天一起跑过的路</span>
+          </div>
+          <div class="stat">
+            <span class="n" id="stat3">34,902</span>
+            <span class="l">送给队友的加油</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 100 天 ========== -->
+  <section id="journey">
+    <div class="wrap">
+      <div class="sec-head">
+        <div>
+          <span class="eyebrow">从第 1 天到第 100 天</span>
+          <h2 class="h2">一级一级，往上走</h2>
+        </div>
+        <p class="lede">改变不会一夜发生，但一定会发生。这是大多数人会经历的四个台阶。</p>
+      </div>
+      <div class="stairs">
+        <div class="step"><div class="txt"><span class="d"><b>1</b>DAY</span><h3>迈出第一步</h3><p>10 分钟快走，或者 20 个深蹲。开始就是全部。</p></div><div class="block"></div></div>
+        <div class="step"><div class="txt"><span class="d"><b>7</b>DAYS</span><h3>身体开始记住节奏</h3><p>起床不再那么难，楼梯爬得更轻松。</p></div><div class="block"></div></div>
+        <div class="step"><div class="txt"><span class="d"><b>30</b>DAYS</span><h3>运动变成习惯</h3><p>一天不动反而想念，睡得更香，心情更亮。</p></div><div class="block"></div></div>
+        <div class="step"><div class="txt"><span class="d"><b>100</b>DAYS</span><h3>回头看，已是另一个你</h3><p>那个犹豫要不要出门的人，现在在带别人跑。</p></div><div class="block"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 语录 ========== -->
+  <section class="quote" aria-label="语录">
+    <div class="wrap">
+      <span class="eyebrow" style="color:var(--sun)">写给正在坚持的你</span>
+      <blockquote>跑慢一点没关系，<br><span>只要不停下。</span></blockquote>
+      <cite>—— 来自一位坚持晨跑 400 天的会员</cite>
+    </div>
+  </section>
+
+  <!-- ========== 活动 ========== -->
+  <section id="events">
+    <div class="wrap">
+      <div class="sec-head">
+        <div>
+          <span class="eyebrow">这周，一起练</span>
+          <h2 class="h2">一个人跑得快，<br>一群人跑得远</h2>
+        </div>
+        <p class="lede">城市里的免费社区活动，零基础也欢迎。带上水和好心情就行。</p>
+      </div>
+      <div class="events">
+        <article class="event" data-taken="152" data-cap="200">
+          <div class="date"><b>10/01</b><span>周四 · 国庆</span></div>
+          <div><h3>国庆晨跑 · 5 km 迎日出</h3><p class="where">06:00 集合 · 滨江步道 · 配速 6'30"/km 起</p></div>
+          <div class="seats"><span class="cnt"></span><div class="bar"><i></i></div></div>
+          <button class="btn btn-primary join" type="button">报名</button>
+        </article>
+        <article class="event" data-taken="38" data-cap="48">
+          <div class="date"><b>10/03</b><span>周六</span></div>
+          <div><h3>3v3 街头篮球友谊赛</h3><p class="where">16:00 开赛 · 城市体育公园 3 号场 · 自由组队</p></div>
+          <div class="seats"><span class="cnt"></span><div class="bar"><i></i></div></div>
+          <button class="btn btn-primary join" type="button">报名</button>
+        </article>
+        <article class="event" data-taken="61" data-cap="120">
+          <div class="date"><b>10/04</b><span>周日</span></div>
+          <div><h3>亲子跳绳 · 一分钟挑战</h3><p class="where">09:30 开始 · 社区中心广场 · 6 岁以上</p></div>
+          <div class="seats"><span class="cnt"></span><div class="bar"><i></i></div></div>
+          <button class="btn btn-primary join" type="button">报名</button>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 结尾 ========== -->
+  <section id="finale" class="finale">
+    <div class="wrap">
+      <span class="eyebrow">最好的开始时间，是现在</span>
+      <h2 class="h2">明天的你，<br>会感谢今天出发的你。</h2>
+      <a class="btn btn-primary" href="#energy">开始第一次训练 <svg class="arr" width="20" height="20"><use href="#i-arrow"/></svg></a>
+    </div>
+    <div class="horizon" aria-hidden="true"></div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <b>知练 CoachMind</b>
+    <span>照片来自 Unsplash，遵循 Unsplash License · 页面中的社区数字为示例</span>
+  </div>
+</footer>
+
+<canvas id="confetti" aria-hidden="true"></canvas>
+
+<script>
+(function () {
+  "use strict";
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var css = getComputedStyle(document.documentElement);
+  function tok(n) { return css.getPropertyValue(n).trim(); }
+  function fmt(n) { return Math.round(n).toLocaleString("en-US"); }
+
+  /* ---------- 封面：旋转的阳光 + 上升的光点 ---------- */
+  var rc = document.getElementById("rays"), rx = rc.getContext("2d");
+  var sparks = [], visible = true, W = 0, H = 0, dpr = 1;
+  function sizeRays() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = rc.clientWidth; H = rc.clientHeight;
+    rc.width = W * dpr; rc.height = H * dpr;
+    rx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  for (var i = 0; i < 38; i++) sparks.push({ a: Math.random() * 6.283, r: Math.random(), s: .2 + Math.random() * .6, z: 1 + Math.random() * 2.4, o: Math.random() });
+  function drawRays(t) {
+    var cx = W / 2, cy = H / 2, R = Math.max(W, H) * .52, n = 20, sun = tok("--sun");
+    rx.clearRect(0, 0, W, H);
+    rx.save(); rx.translate(cx, cy); rx.rotate(t * .00005);
+    var g = rx.createRadialGradient(0, 0, R * .2, 0, 0, R);
+    g.addColorStop(0, sun); g.addColorStop(1, "rgba(255,184,28,0)");
+    rx.fillStyle = g;
+    for (var k = 0; k < n; k++) {
+      var a0 = k / n * 6.283, w = (k % 2 ? .06 : .11) * (1 + .15 * Math.sin(t * .0012 + k));
+      rx.globalAlpha = k % 2 ? .28 : .45;
+      rx.beginPath(); rx.moveTo(0, 0); rx.arc(0, 0, R, a0 - w, a0 + w); rx.closePath(); rx.fill();
+    }
+    rx.restore();
+    // 光点：从太阳周围向上飘
+    rx.globalAlpha = 1;
+    for (var j = 0; j < sparks.length; j++) {
+      var p = sparks[j];
+      p.o += p.s * .004; if (p.o > 1) { p.o = 0; p.a = Math.random() * 6.283; p.r = Math.random(); }
+      var x = cx + Math.cos(p.a) * W * (.18 + p.r * .2), y = cy + H * .22 - p.o * H * .62;
+      rx.globalAlpha = Math.sin(p.o * Math.PI) * .9;
+      rx.fillStyle = j % 3 ? "#FFE27A" : "#FFFFFF";
+      rx.beginPath(); rx.arc(x, y, p.z, 0, 6.283); rx.fill();
+    }
+    rx.globalAlpha = 1;
+  }
+  function loopRays(t) { if (visible) drawRays(t); requestAnimationFrame(loopRays); }
+  sizeRays(); window.addEventListener("resize", sizeRays);
+  if ("IntersectionObserver" in window) new IntersectionObserver(function (e) { visible = e[0].isIntersecting; }).observe(rc);
+  if (reduce) drawRays(0); else requestAnimationFrame(loopRays);
+
+  /* ---------- 数字：开场滚动 + 缓慢增长 ---------- */
+  var counters = [
+    { el: document.getElementById("stat1"), v: 12480, unit: "" , step: [1, 4] },
+    { el: document.getElementById("stat2"), v: 86215, unit: "<small>km</small>", step: [3, 12] },
+    { el: document.getElementById("stat3"), v: 34902, unit: "", step: [2, 9] }
+  ];
+  var hero = document.getElementById("todayCount");
+  function paint(c, n) { c.el.innerHTML = fmt(n) + c.unit; }
+  if (!reduce) {
+    var t0 = performance.now();
+    (function countUp(now) {
+      var k = Math.min(1, (now - t0) / 1400), e = 1 - Math.pow(1 - k, 3);
+      counters.forEach(function (c) { paint(c, c.v * (.6 + .4 * e)); });
+      hero.textContent = fmt(counters[0].v * (.6 + .4 * e));
+      if (k < 1) requestAnimationFrame(countUp);
+    })(t0);
+    setInterval(function () {
+      var c = counters[Math.floor(Math.random() * counters.length)];
+      c.v += c.step[0] + Math.floor(Math.random() * (c.step[1] - c.step[0]));
+      paint(c, c.v); c.el.classList.remove("bump"); void c.el.offsetWidth; c.el.classList.add("bump");
+      hero.textContent = fmt(counters[0].v);
+    }, 2600);
+  }
+
+  /* ---------- 打卡 ---------- */
+  var KEY = "cm-landing-checkin";
+  var names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+  var now = new Date(), todayIdx = (now.getDay() + 6) % 7, todayKey = now.toISOString().slice(0, 10);
+  var sampleDone = Math.min(todayIdx, 3);        // 示例：今天之前的最多 3 天已完成
+  var done = false;
+  try { done = localStorage.getItem(KEY) === todayKey; } catch (e) {}
+  var cheers = [
+    "太棒了！今天的你在发光。",
+    "又一个太阳升起来了，离目标更近一步。",
+    "身体会记住你今天的每一次努力。",
+    "坚持的人，运气都不会太差。"
+  ];
+  var week = document.getElementById("week"), stamp = document.getElementById("stamp");
+  function renderWeek() {
+    week.innerHTML = "";
+    for (var d = 0; d < 7; d++) {
+      var on = (d < todayIdx && d >= todayIdx - sampleDone) || (d === todayIdx && done);
+      var el = document.createElement("div");
+      el.className = "day" + (on ? " on" : "") + (d === todayIdx ? " today" : "");
+      el.innerHTML = "<i>" + (on ? '<svg><use href="#i-check"/></svg>' : "") + "</i>" + (d === todayIdx ? "今天" : names[d]);
+      week.appendChild(el);
+    }
+    var n = sampleDone + (done ? 1 : 0);
+    document.getElementById("streakTitle").textContent = done ? "连续 " + n + " 天，太阳升起来了！" : (n ? "本周已坚持 " + n + " 天" : "新的一周，从今天开始");
+    if (!done) document.getElementById("msg").textContent = n ? "再坚持一下，第 " + (n + 1) + " 个太阳就在前面。" : "第一个太阳，等你来点亮。";
+    stamp.classList.toggle("done", done);
+    stamp.setAttribute("aria-pressed", String(done));
+    stamp.innerHTML = done ? '<svg width="56" height="56" style="display:block;margin:auto"><use href="#i-check"/></svg><small>今天已点亮</small>' : "打卡<small>点一下，点亮今天</small>";
+  }
+  stamp.addEventListener("click", function () {
+    done = !done;
+    try { done ? localStorage.setItem(KEY, todayKey) : localStorage.removeItem(KEY); } catch (e) {}
+    renderWeek();
+    if (done) {
+      document.getElementById("msg").textContent = cheers[Math.floor(Math.random() * cheers.length)];
+      var r = stamp.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + r.height / 2);
+    }
+  });
+  renderWeek();
+
+  /* ---------- 彩带 ---------- */
+  var cc = document.getElementById("confetti"), cx2 = cc.getContext("2d"), bits = [], running = false;
+  function burst(x, y) {
+    if (reduce) return;
+    cc.width = innerWidth * dpr; cc.height = innerHeight * dpr; cx2.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var cols = [tok("--sun"), tok("--clay"), tok("--turf"), tok("--sky"), "#FFE27A"];
+    for (var i = 0; i < 90; i++) {
+      var a = Math.random() * 6.283, v = 4 + Math.random() * 9;
+      bits.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 5, r: Math.random() * 6.283, vr: (Math.random() - .5) * .4, w: 6 + Math.random() * 6, h: 4 + Math.random() * 6, c: cols[i % cols.length], life: 1 });
+    }
+    if (!running) { running = true; requestAnimationFrame(tick); }
+  }
+  function tick() {
+    cx2.clearRect(0, 0, cc.width, cc.height);
+    bits = bits.filter(function (b) { return b.life > 0; });
+    bits.forEach(function (b) {
+      b.vy += .28; b.vx *= .985; b.x += b.vx; b.y += b.vy; b.r += b.vr; b.life -= .008;
+      cx2.save(); cx2.globalAlpha = Math.max(0, Math.min(1, b.life * 1.6)); cx2.translate(b.x, b.y); cx2.rotate(b.r);
+      cx2.fillStyle = b.c; cx2.fillRect(-b.w / 2, -b.h / 2, b.w, b.h); cx2.restore();
+    });
+    if (bits.length) requestAnimationFrame(tick); else { running = false; cx2.clearRect(0, 0, cc.width, cc.height); }
+  }
+
+  /* ---------- 活动报名 ---------- */
+  document.querySelectorAll(".event").forEach(function (ev) {
+    var taken = +ev.dataset.taken, cap = +ev.dataset.cap, joined = false;
+    var cnt = ev.querySelector(".cnt"), bar = ev.querySelector(".bar i"), btn = ev.querySelector(".join");
+    function render() {
+      var n = taken + (joined ? 1 : 0);
+      cnt.textContent = "已有 " + n + " 人报名 · 剩 " + (cap - n) + " 个名额";
+      bar.style.width = (n / cap * 100) + "%";
+      btn.classList.toggle("joined", joined);
+      btn.innerHTML = joined ? '<svg width="18" height="18"><use href="#i-check"/></svg> 已报名' : "报名";
+    }
+    btn.addEventListener("click", function () {
+      joined = !joined; render();
+      if (joined) { var r = btn.getBoundingClientRect(); burst(r.left + r.width / 2, r.top + r.height / 2); }
+    });
+    render();
+  });
+})();
+</script>
+</body>
+</html>
