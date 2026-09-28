@@ -14,7 +14,9 @@ AI 运动科学教练系统。第一阶段是手机 Web App（GitHub Pages + iPh
 - sports.js：项目技术库（按项群训练理论：速度性/快速力量性/耐力性/表现难美性/隔网对抗性/同场对抗性，11 个项目）
 - cover.js：首页封面：WebGL 程序生成的“日出田径场”（短跑）与竖直光带（举重）。不使用任何照片
 - sw.js：离线缓存
-- vision_bundle.mjs、vision_wasm_internal.js/.wasm、pose_landmarker_full.task、mp4box.all.min.js：离线识别文件（@mediapipe/tasks-vision 0.10.14，三个文件必须同一版本）。不要改动、不要用 Git LFS
+- vision_bundle.mjs、vision_wasm_internal.js/.wasm、pose_landmarker_full.task、mp4box.all.min.js：离线识别文件。不要改动、不要用 Git LFS
+  - vision_bundle.mjs、vision_wasm_internal.js、vision_wasm_internal.wasm 这 3 个 MediaPipe 文件必须是同一版本（@mediapipe/tasks-vision 0.10.14，与 app.js 的 MP_VERSION 一致）。仓库里的 vision_wasm_nosimd_internal.js/.wasm 也是 0.10.14，app.js 目前不加载它们
+  - pose_landmarker_full.task（姿态模型）和 mp4box.all.min.js（视频解析）与 MediaPipe 版本无关
 - .gitattributes：*.task、*.wasm、*.jpg、*.woff2 按二进制处理（曾因换行符转换损坏过模型文件）
 
 ## 已踩过的坑（不要重犯）
