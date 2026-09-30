@@ -622,9 +622,60 @@ h3.sec, .tech h3 { letter-spacing: 0.08em; }
 header.bar .ttl { letter-spacing: 0.2em; }
 .msg.ok { background: #111; border-color: var(--line); } .msg.ok b { color: var(--ivory); }
 
+/* ================= 开屏：实拍视频 + 大号衬线标题 ================= */
+.opening { position: fixed; inset: 0; z-index: 200; background: #000; color: var(--ivory); overflow: hidden; transition: opacity 1s cubic-bezier(.6,0,.2,1), transform 1.2s cubic-bezier(.6,0,.2,1); }
+.opening[hidden] { display: none; }
+.opening.out { opacity: 0; transform: scale(1.04); pointer-events: none; }
+.opening video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 58% 40%; transform: scale(1.06); animation: op-push 9s cubic-bezier(.2,.6,.3,1) forwards; }
+.opening.still video { animation-duration: 6s; }
+@keyframes op-push { from { transform: scale(1.14); } to { transform: scale(1.02); } }
+.op-veil { position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.28) 42%, rgba(0,0,0,0) 70%),
+              linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0) 22%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.7) 100%); }
+.op-top { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; justify-content: space-between;
+  padding: calc(env(safe-area-inset-top, 0px) + 18px) max(24px, env(safe-area-inset-right, 0px)) 0 max(24px, env(safe-area-inset-left, 0px)); opacity: 0; animation: op-fade 1.2s ease .3s forwards; }
+.op-logo { font-family: var(--serif); font-weight: 700; font-size: 18px; letter-spacing: 0.3em; }
+.op-logo i { font-family: var(--editorial); font-style: italic; font-weight: 400; font-size: 15px; letter-spacing: 0.04em; margin-left: 10px; color: rgba(242,237,228,0.7); }
+.op-skip { border: 1px solid rgba(242,237,228,0.45); background: rgba(0,0,0,0.18); color: var(--ivory); border-radius: 999px; min-height: 34px; padding: 0 16px; font-size: 12px; letter-spacing: 0.3em; text-indent: 0.3em; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); cursor: pointer; }
+.op-copy { position: absolute; left: max(24px, env(safe-area-inset-left, 0px)); right: 24px; bottom: calc(env(safe-area-inset-bottom, 0px) + 64px); max-width: 640px; }
+.op-copy p, .op-copy h1 { margin: 0; }
+.op-copy span { display: block; overflow: hidden; }
+.op-copy span > em { display: block; font-style: normal; }
+.op-eyebrow { font-family: var(--num); font-size: 11px; letter-spacing: 0.42em; color: rgba(242,237,228,0.78); margin-bottom: 14px !important; }
+.op-title { font-family: "Didot", "Bodoni 72", var(--editorial); font-weight: 400; font-size: clamp(54px, 15.5vw, 132px); line-height: 0.94; letter-spacing: -0.02em; text-shadow: 0 2px 40px rgba(0,0,0,0.35); }
+.op-title span + span em { font-style: italic; font-family: var(--editorial); }
+.op-cn { font-family: var(--serif); font-size: clamp(17px, 4.6vw, 24px); letter-spacing: 0.32em; margin-top: 18px !important; }
+.op-body { font-size: 13px; line-height: 1.7; letter-spacing: 0.08em; color: rgba(242,237,228,0.72); margin-top: 8px !important; }
+.op-cta { display: flex; align-items: center; gap: 22px; margin-top: 26px; }
+.op-go { border: 0; background: var(--ivory); color: #0A0A0B; border-radius: 999px; min-height: 46px; padding: 0 24px; font-size: 14px; letter-spacing: 0.24em; font-weight: 600; cursor: pointer; }
+.op-go b { font-family: var(--num); font-weight: 400; margin-left: 6px; letter-spacing: 0; }
+/* 文字逐行从遮罩里升起 */
+.op-copy [data-l] { transform: translateY(105%); opacity: 0; filter: blur(8px); animation: op-rise 1.3s cubic-bezier(.16,.84,.24,1) forwards; }
+.op-copy [data-l="1"] { animation-delay: .6s; } .op-copy [data-l="2"] { animation-delay: .9s; } .op-copy [data-l="3"] { animation-delay: 1.15s; }
+.op-copy [data-l="4"] { animation-delay: 1.7s; } .op-copy [data-l="5"] { animation-delay: 2s; } .op-copy [data-l="6"] { animation-delay: 2.4s; }
+@keyframes op-rise { to { transform: none; opacity: 1; filter: blur(0); } }
+@keyframes op-fade { to { opacity: 1; } }
+.op-line { position: absolute; left: max(24px, env(safe-area-inset-left, 0px)); right: 24px; bottom: calc(env(safe-area-inset-bottom, 0px) + 30px); height: 1px; background: rgba(242,237,228,0.18); }
+.op-line i { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: var(--ivory); transform-origin: 0 50%; transform: scaleX(0); }
+@media (min-width: 900px) and (orientation: landscape) { .op-copy { bottom: 13vh; left: 7vw; } .op-top { padding-left: 7vw; padding-right: 5vw; } .op-title { font-size: clamp(72px, 9vw, 150px); } .op-line { left: 7vw; right: 5vw; } }
+@media (prefers-reduced-motion: reduce) { .opening video { animation: none; } .op-copy [data-l] { animation-duration: .01s; } }
+
 </style>
 </head>
 <body>
+<div class="opening" id="opening" hidden>
+  <video id="openVid" muted playsinline preload="auto" poster="img/opening-poster.jpg" aria-hidden="true"></video>
+  <div class="op-veil" aria-hidden="true"></div>
+  <div class="op-top"><span class="op-logo">知练<i>CoachMind</i></span><button class="op-skip" id="openSkip">跳过</button></div>
+  <div class="op-copy">
+    <p class="op-eyebrow"><span><em data-l="1">THE SCIENCE OF SPEED &amp; POWER</em></span></p>
+    <h1 class="op-title"><span><em data-l="2">Closer to</em></span><span><em data-l="3">the limit.</em></span></h1>
+    <p class="op-cn"><span><em data-l="4">离极限，再近一步。</em></span></p>
+    <p class="op-body"><span><em data-l="5">每一次训练，都被看见、被记录、被超越。</em></span></p>
+    <div class="op-cta"><span><em data-l="6"><button class="op-go" id="openGo">开始训练<b>→</b></button></em></span></div>
+  </div>
+  <div class="op-line" aria-hidden="true"><i id="openProg"></i></div>
+</div>
 <header class="bar" id="bar">
   <button class="back" id="backBtn" hidden aria-label="返回"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
   <div class="ttl" id="title"></div>

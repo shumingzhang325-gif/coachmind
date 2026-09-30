@@ -1610,9 +1610,31 @@
     const hero = $("hero");
     let seen = false; try { seen = sessionStorage.getItem("cm_intro") === "1"; sessionStorage.setItem("cm_intro", "1"); } catch (e) { /* 忽略 */ }
     const reveal = () => hero.classList.remove("intro");
-    if (window.Cover) { cover = new Cover($("heroCanvas"), { world: localStorage.getItem("cm_world") || "sprint", intro: !seen, onReveal: reveal }); cover.start(); }
-    else reveal();
-    setTimeout(reveal, seen ? 1500 : 9000);
+    const reduced = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const opening = !seen && !reduced;   // 本次打开第一次：先播实拍开屏，封面直接亮起
+    if (window.Cover) { cover = new Cover($("heroCanvas"), { world: localStorage.getItem("cm_world") || "sprint", intro: false, onReveal: opening ? () => {} : reveal }); cover.start(); }
+    if (opening) playOpening(reveal); else { if (!window.Cover) reveal(); setTimeout(reveal, 1500); }
+  }
+  // 开屏视频：实拍 + 大号衬线标题。播完、点“开始训练”或“跳过”进入首页。
+  // 低电量模式等情况下视频不能自动播放时，改为静帧慢推镜头，照常进入。
+  function playOpening(done) {
+    const box = $("opening"), vid = $("openVid"), prog = $("openProg");
+    let closed = false, raf = 0;
+    const close = () => {
+      if (closed) return; closed = true; cancelAnimationFrame(raf);
+      box.classList.add("out"); done();
+      setTimeout(() => { box.hidden = true; try { vid.pause(); vid.removeAttribute("src"); vid.load(); } catch (e) { /* 忽略 */ } }, 1300);
+    };
+    const tick = () => { if (vid.duration) prog.style.transform = `scaleX(${Math.min(1, vid.currentTime / vid.duration)})`; raf = requestAnimationFrame(tick); };
+    const still = () => { box.classList.add("still"); prog.style.transition = "transform 5.5s linear"; requestAnimationFrame(() => { prog.style.transform = "scaleX(1)"; }); setTimeout(close, 5800); };
+    box.hidden = false;
+    $("openGo").onclick = close; $("openSkip").onclick = close;
+    vid.onended = close;
+    vid.onerror = () => { if (!closed && !box.classList.contains("still")) still(); };
+    vid.src = "img/opening.mp4";
+    const p = vid.play();
+    if (p && p.then) p.then(() => { raf = requestAnimationFrame(tick); }).catch(still); else raf = requestAnimationFrame(tick);
+    setTimeout(close, 12000);   // 保险：无论如何 12 秒后进入
   }
   document.querySelectorAll(".mnav button[data-w]").forEach(b => b.onclick = () => setWorld(b.dataset.w));
   document.querySelectorAll(".mnav a").forEach(l => l.onclick = e => { e.preventDefault(); const t = document.querySelector(l.getAttribute("href")); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); });
