@@ -576,7 +576,7 @@ header.bar .ttl { font-family: var(--serif); letter-spacing: 0.12em; }
 .hero-photo.on ~ canvas { opacity: 0 !important; }
 .hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 1; }
 .hero-veil { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.38) 0%, rgba(0,0,0,0.04) 20%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.12) 88%, rgba(5,5,5,0.6) 100%); pointer-events: none; }
-.hero > *:not(.hero-photo):not(canvas):not(.hero-veil) { position: relative; z-index: 2; }
+.hero > *:not(.hero-photo):not(canvas):not(.hero-veil):not(.hero-vid) { position: relative; z-index: 2; }
 .mast { padding-top: calc(env(safe-area-inset-top, 0px) + 34px); }
 .mast .brand { display: block; } .mast .brand b { display: block; white-space: nowrap; font-family: var(--serif); font-weight: 700; font-size: 44px; letter-spacing: 0.22em; color: var(--ivory); line-height: 1.1; }
 .mast .brand i { display: block; margin-top: 8px; font-family: var(--editorial); font-style: italic; font-size: 21px; color: rgba(242,237,228,0.82); letter-spacing: 0.02em; }
@@ -621,6 +621,10 @@ header.bar .ttl { font-family: var(--serif); letter-spacing: 0.12em; }
 h3.sec, .tech h3 { letter-spacing: 0.08em; }
 header.bar .ttl { letter-spacing: 0.2em; }
 .msg.ok { background: #111; border-color: var(--line); } .msg.ok b { color: var(--ivory); }
+
+/* 首页封面：同一段实拍视频循环播放（压暗，让文字清楚） */
+.hero-vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 58% 40%; filter: brightness(0.72) contrast(1.05); background: #000 center / cover no-repeat url(img/opening-poster.jpg); }
+.hero .hero-veil { background: linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.1) 30%, rgba(0,0,0,0.15) 65%, rgba(5,5,5,0.85) 100%) !important; }
 
 /* ================= 开屏：实拍视频 + 大号衬线标题 ================= */
 .opening { position: fixed; inset: 0; z-index: 200; background: #000; color: var(--ivory); overflow: hidden; transition: opacity 1s cubic-bezier(.6,0,.2,1), transform 1.2s cubic-bezier(.6,0,.2,1); }
@@ -686,7 +690,7 @@ header.bar .ttl { letter-spacing: 0.2em; }
 <!-- 首页 -->
 <section class="view on" id="v-home">
   <div class="hero intro" id="hero">
-    <canvas id="heroCanvas" aria-hidden="true"></canvas>
+    <video class="hero-vid" id="heroVid" muted playsinline loop preload="none" poster="img/opening-poster.jpg" aria-hidden="true"></video>
     <div class="hero-veil" aria-hidden="true"></div>
     <header class="mast">
       <div class="brand"><b>知练</b><i>The Science of Speed &amp; Power</i></div>
@@ -887,7 +891,6 @@ header.bar .ttl { letter-spacing: 0.2em; }
 </main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div id="resTitle" hidden></div><div id="resMeta" hidden></div>
-<script src="cover.js"></script>
 <script src="engine.js"></script>
 <script src="coach.js"></script>
 <script src="sports.js"></script>

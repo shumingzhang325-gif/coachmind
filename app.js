@@ -83,7 +83,7 @@
     $("stepper").querySelectorAll("i").forEach((el, k) => el.classList.toggle("on", k < m.step));
     window.scrollTo(0, 0);
     $("bar").hidden = v === "home";
-    if (v === "home") { viewStack = ["home"]; stopPlayback(); renderHome(); renderPeople(); renderSports(); renderModelState(); if (cover) requestAnimationFrame(() => cover.resize()); }
+    if (v === "home") { viewStack = ["home"]; stopPlayback(); renderHome(); renderPeople(); renderSports(); renderModelState(); playHeroVid(); } else { const hv = $("heroVid"); if (hv) hv.pause(); }
   }
   $("backBtn").onclick = () => {
     if (S.processing) { S.cancel = true; return; }
@@ -1595,14 +1595,12 @@
     sprint: { title: "SPRINT", eyebrow: "第一章　速度", issue: "Chapter I · The Anatomy of Speed", story: "看清每一次触地", line: "Where speed meets science.", go: "分析一段短跑视频", action: "sprint" },
     lift: { title: "POWER", eyebrow: "第二章　力量", issue: "Chapter II · The Path of the Bar", story: "看清杠铃走过的每一厘米", line: "Where strength meets precision.", go: "分析一段举重视频", action: "clean" },
   };
-  let cover = null;
   function setWorld(w) {
     const H = HERO[w] || HERO.sprint;
     document.querySelectorAll(".mnav button[data-w]").forEach(b => b.setAttribute("aria-pressed", b.dataset.w === w));
     $("heroTitle").textContent = H.title; $("heroLine").textContent = H.line; $("heroEyebrow").textContent = H.eyebrow;
     $("heroIssue").textContent = H.issue; $("heroStory").textContent = H.story;
     $("heroGo").textContent = H.go; $("heroGo").dataset.action = H.action;
-    if (cover) cover.setWorld(w);
     try { localStorage.setItem("cm_world", w); } catch (e) { /* 忽略 */ }
   }
   // 开场即封面：田径场日出（本次打开第一次完整播放；之后快速亮起；点一下可加速）
@@ -1612,9 +1610,15 @@
     const reveal = () => hero.classList.remove("intro");
     const reduced = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const opening = !seen && !reduced;   // 本次打开第一次：先播实拍开屏，封面直接亮起
-    if (window.Cover) { cover = new Cover($("heroCanvas"), { world: localStorage.getItem("cm_world") || "sprint", intro: false, onReveal: opening ? () => {} : reveal }); cover.start(); }
-    if (opening) playOpening(reveal); else { if (!window.Cover) reveal(); setTimeout(reveal, 1500); }
+    if (opening) playOpening(() => { reveal(); playHeroVid(); }); else { playHeroVid(); setTimeout(reveal, 300); }
   }
+  // 首页封面视频：离开首页时暂停省电，回到首页再播；不能自动播放时停在静帧
+  function playHeroVid() {
+    const v = $("heroVid"); if (!v) return;
+    if (!v.getAttribute("src")) v.src = "img/opening.mp4";
+    const p = v.play(); if (p && p.catch) p.catch(() => {});
+  }
+  document.addEventListener("visibilitychange", () => { const v = $("heroVid"); if (v && document.hidden) v.pause(); else if (v && $("v-home").classList.contains("on")) playHeroVid(); });
   // 开屏视频：实拍 + 大号衬线标题。播完、点“开始训练”或“跳过”进入首页。
   // 低电量模式等情况下视频不能自动播放时，改为静帧慢推镜头，照常进入。
   function playOpening(done) {

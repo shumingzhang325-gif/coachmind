@@ -4,7 +4,7 @@ AI 运动科学教练系统。第一阶段是手机 Web App（GitHub Pages + iPh
 开发者：张书铭（Shuming），运动训练专业。用户界面全部用中文；回复用户也用中文。用户用 iPhone 16 Pro 测试，没有 Mac。
 
 线上地址：https://shumingzhang325-gif.github.io/coachmind/
-当前版本：v1.5（Service Worker 缓存名 coachmind-v16，每次发布都要加 1）
+当前版本：v1.6（Service Worker 缓存名 coachmind-v17，每次发布都要加 1）
 
 ## 文件
 - index.html：全部界面与样式（CSS 在 <style> 里，后面的规则覆盖前面的：依次是基础、皇家黑金、杂志封面风格）
@@ -12,7 +12,7 @@ AI 运动科学教练系统。第一阶段是手机 Web App（GitHub Pages + iPh
 - engine.js：分析算法（头部内嵌 CM_THRESHOLDS 与 CM_CARDS）。源码在 dev/engine_src.js，改源码后把 engine.js 头部（阈值与知识卡）+ engine_src.js 拼回去
 - coach.js：教练大脑：速度模型、七维画像、多学科分析、周期计划（短跑 + 5 个项群计划库 GROUP_PLANS）、每日状态
 - sports.js：项目技术库（按项群训练理论：速度性/快速力量性/耐力性/表现难美性/隔网对抗性/同场对抗性，11 个项目）
-- cover.js：首页封面：WebGL 程序生成的“日出田径场”（短跑）与竖直光带（举重）。不使用任何照片
+- img/opening.mp4、img/opening-poster.jpg：开屏与首页封面用的实拍视频（用户提供的 F1 车手片段，原片 1206×670/60fps，用 Real-ESRGAN realesr-general-x4v3 逐帧放大到 1920×1068，按 30fps 输出成 2 倍慢动作，约 7 秒，结尾淡出）。v1.6 起 cover.js（程序生成的日出田径场）已删除
 - sw.js：离线缓存
 - vision_bundle.mjs、vision_wasm_internal.js/.wasm、pose_landmarker_full.task、mp4box.all.min.js：离线识别文件。不要改动、不要用 Git LFS
   - vision_bundle.mjs、vision_wasm_internal.js、vision_wasm_internal.wasm 这 3 个 MediaPipe 文件必须是同一版本（@mediapipe/tasks-vision 0.10.14，与 app.js 的 MP_VERSION 一致）。仓库里的 vision_wasm_nosimd_internal.js/.wasm 也是 0.10.14，app.js 目前不加载它们
@@ -26,6 +26,7 @@ AI 运动科学教练系统。第一阶段是手机 Web App（GitHub Pages + iPh
 4. 模型文件 .task 是 ZIP：下载、缓存、导入都做完整 ZIP 结构检查；识别程序报 Unable to open zip archive 时自动换下一个来源。
 5. MediaPipe VIDEO 模式时间戳必须单调递增：全局 lmClock，选人试探（IMAGE 模式，用 setOptions 切换）与正式分析共用。
 6. 国内网络：jsDelivr/Google 常连不上，加载顺序是“本站文件 → npmmirror → jsDelivr → unpkg”；模型是“本机 IndexedDB → 本站 → Google”。
+7. Service Worker 里的视频必须按 Range 返回 206 分段（sw.js 的 videoResponse），否则 iPhone Safari 播不出缓存里的视频。视频不放进安装时预缓存的 CORE，第一次播放时再缓存。
 
 ## 分析流程与算法
 - 流程：选视频 → 帧率 → 选片段 → 选择运动员（点一下，自动试 6%–100% 大小的框，锁定点击处确实识别到人的最小框）→ 标定（短跑/高翻可选）→ 逐帧分析 → 结果。
@@ -42,7 +43,8 @@ AI 运动科学教练系统。第一阶段是手机 Web App（GitHub Pages + iPh
 - 浏览器端：真实 MediaPipe 运行时在这个仓库的文件里，能联网时用 Playwright + Chromium 做端到端测试（注意用真实运行时，替身测不出 Emscripten 相关问题）。
 
 ## 设计规范（用户多次反馈后确定）
-- 首页：杂志封面式。开场即封面：凌晨四点朦胧蓝（不要全黑）→ 太阳在跑道消失点升起 → 红色跑道、白色分道线、绿色草坪形成对比 → 标题浮现。
+- 开屏（v1.6）：全屏实拍视频 + 参考高端网站的排版：左上品牌、右上“跳过”，左下眉题小字 → 大号衬线双行标题（第二行斜体）→ 中文标语 → 白色胶囊按钮“开始训练”，文字逐行升起，底部细线显示进度。每次打开播一次；低电量模式不能自动播放时用静帧慢推。首页封面循环播放同一段视频（压暗）。
+- 版权：开屏视频是用户自己选定的 F1 宣传片段（含 Red Bull 等商标），用户已知晓公开使用的版权风险并决定使用；以后如换成自拍或免费可商用素材，只需替换 img/opening.mp4 和 img/opening-poster.jpg。
 - 黑色底 + 象牙白文字；金色只做点缀（小标题、细线、按钮细边框）。用户认为大面积金色“土”。
 - 字体：标题 Cinzel/Didot，斜体 Cormorant Garamond/Baskerville，中文宋体（Songti SC）。fonts/ 下的开源字体可选。
 - 不用网上的受版权保护图片；用户给的照片只是参考，不要直接使用。
