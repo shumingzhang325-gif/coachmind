@@ -4,7 +4,7 @@ AI 运动科学教练系统。第一阶段是手机 Web App（GitHub Pages + iPh
 开发者：张书铭（Shuming），运动训练专业。用户界面全部用中文；回复用户也用中文。用户用 iPhone 16 Pro 测试，没有 Mac。
 
 线上地址：https://shumingzhang325-gif.github.io/coachmind/
-当前版本：v1.6（Service Worker 缓存名 coachmind-v17，每次发布都要加 1）
+当前版本：v1.7（Service Worker 缓存名 coachmind-v18，每次发布都要加 1）
 
 ## 文件
 - index.html：全部界面与样式（CSS 在 <style> 里，后面的规则覆盖前面的：依次是基础、皇家黑金、杂志封面风格）
@@ -26,7 +26,8 @@ AI 运动科学教练系统。第一阶段是手机 Web App（GitHub Pages + iPh
 4. 模型文件 .task 是 ZIP：下载、缓存、导入都做完整 ZIP 结构检查；识别程序报 Unable to open zip archive 时自动换下一个来源。
 5. MediaPipe VIDEO 模式时间戳必须单调递增：全局 lmClock，选人试探（IMAGE 模式，用 setOptions 切换）与正式分析共用。
 6. 国内网络：jsDelivr/Google 常连不上，加载顺序是“本站文件 → npmmirror → jsDelivr → unpkg”；模型是“本机 IndexedDB → 本站 → Google”。
-7. Service Worker 里的视频必须按 Range 返回 206 分段（sw.js 的 videoResponse），否则 iPhone Safari 播不出缓存里的视频。视频不放进安装时预缓存的 CORE，第一次播放时再缓存。
+7. 视频不要让 <video> 直接请求（Safari 对 Service Worker 返回的视频分段请求经常播放失败，v1.6 真机上开屏变成静帧）。app.js 的 videoUrl() 先用 fetch 整段下载成 blob，再把 blob 地址给 <video>；Service Worker 按普通文件缓存，离线也能播。
+8. GitHub Pages 让浏览器缓存页面 10 分钟：sw.js 取 html/js 时用 cache: "no-cache" 向服务器确认，发布后刷新就是新版。
 
 ## 分析流程与算法
 - 流程：选视频 → 帧率 → 选片段 → 选择运动员（点一下，自动试 6%–100% 大小的框，锁定点击处确实识别到人的最小框）→ 标定（短跑/高翻可选）→ 逐帧分析 → 结果。
