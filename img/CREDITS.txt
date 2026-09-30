@@ -54,3 +54,5 @@ sport-basketball.jpg
 sport-football.jpg
   Photographer: see Unsplash (full-body kick with ball in air)
   Source: https://images.unsplash.com/photo-1560272564-c83b66b1ad12
+
+opening.mp4 / opening-poster.jpg：用户提供的 F1 车手宣传片段（屏幕录制），版权归原权利人；用户知晓风险并决定使用。
