@@ -1,7 +1,8 @@
 /* 知练 CoachMind 项目技术库
    按“项群训练理论”（田麦久）组织：体能主导类 / 技能主导类。
    每个技术：技术环节 → 关键技术点 → 常见错误（视频里怎么看 / 技术原因 / 身体原因 / 纠正练习 / 伤病风险）
-   内容为教练经验与运动训练学教材共识，标注“经验”的需结合老师意见校准。 */
+   内容为教练经验与运动训练学教材共识，标注“经验”的需结合老师意见校准。
+   principles：这个技术背后的原理（knowledge.js 的 id），在技术页里链接到知识库。 */
 (function (root) {
   "use strict";
   const GROUPS = [
@@ -16,7 +17,7 @@
   // 动作分析模式：general = 通用骨骼+关节角度+跳跃检测；sprint / clean 为专项模式
   const SPORTS = [
     { id: "sprint", name: "短跑", group: "speed", glyph: "sprint", techniques: [
-      { id: "maxv", name: "途中跑（最高速度段）", mode: "sprint",
+      { id: "maxv", name: "途中跑（最高速度段）", mode: "sprint", principles: ["impulse", "grf", "ssc"],
         phases: ["着地", "支撑缓冲", "蹬伸", "腾空", "摆动腿前摆"],
         keyPoints: ["着地点靠近身体重心投影点，脚掌前部主动“扒地”着地", "支撑期短，髋部保持高位不“坐”", "躯干基本正直，略前倾", "摆动腿大腿前摆充分，折叠紧", "摆臂以肩为轴前后摆，放松不耸肩"],
         errors: [
@@ -24,7 +25,7 @@
           { error: "坐着跑（髋低）", look: "支撑期髋关节明显下沉，膝角小，躯干后仰", tech: "着地位置靠前，蹬伸方向偏上", body: "髋伸肌与踝关节刚度不足；核心稳定性差", drills: ["高抬腿行进、踝关节小步跑", "单腿支撑稳定练习、臀桥", "跳绳/连续跳提升踝刚度"], risk: "触地时间变长，速度下降" },
           { error: "后程摆臂幅度变小、动作变形", look: "60 米后肩部紧张耸起，摆臂幅度和步频下降", tech: "放松能力差", body: "速度耐力不足（磷酸原-糖酵解供能能力）", drills: ["120–150 米重复跑", "“最后 20 米放松保持”提示语训练"], risk: "—" },
         ] },
-      { id: "start", name: "起跑与加速", mode: "general",
+      { id: "start", name: "起跑与加速", mode: "general", principles: ["grf", "impulse", "forcevel"],
         phases: ["预备姿势", "蹬离起跑器", "第一步着地", "加速跑（逐步抬起躯干）"],
         keyPoints: ["预备时前腿膝角约 90°、后腿约 120°（经验）", "蹬离时身体形成前倾直线（头-髋-踝）", "前几步着地点在重心后方，步长逐步增加", "躯干随速度增加逐渐抬起，不突然直立"],
         errors: [
@@ -33,7 +34,7 @@
         ] },
     ] },
     { id: "longjump", name: "跳远", group: "power", glyph: "jump", techniques: [
-      { id: "approach", name: "助跑与起跳", mode: "general",
+      { id: "approach", name: "助跑与起跳", mode: "general", principles: ["impulse", "ssc", "angular"],
         phases: ["助跑（步点稳定）", "最后几步节奏调整", "踏板起跳", "腾空", "落地"],
         keyPoints: ["助跑步点稳定，最后 6 步可复现", "倒数第二步稍长、重心略降，最后一步稍短", "起跳腿快速有力着板，摆动腿与双臂积极上摆", "起跳后身体向前上方腾起，不“冲过”板"],
         errors: [
@@ -42,7 +43,7 @@
         ] },
     ] },
     { id: "weightlifting", name: "举重（高翻/抓举）", group: "power", glyph: "lift", techniques: [
-      { id: "clean", name: "高翻", mode: "clean",
+      { id: "clean", name: "高翻", mode: "clean", principles: ["forcevel", "torque", "impulse"],
         phases: ["预备", "第一次拉（离地到膝）", "过渡", "第二次拉（三关节伸展）", "下蹲翻腕", "接杠", "站起"],
         keyPoints: ["离地时杠铃在脚掌中部上方，背部平直", "第一次拉手臂伸直，杠铃贴近小腿", "第二次拉髋、膝、踝完全伸展后再下蹲", "杠铃轨迹接近竖直，不向前甩出", "接杠时肘部迅速前抬"],
         errors: [
@@ -52,7 +53,7 @@
         ] },
     ] },
     { id: "distance", name: "中长跑", group: "endurance", glyph: "run", techniques: [
-      { id: "economy", name: "跑步姿势与经济性", mode: "general",
+      { id: "economy", name: "跑步姿势与经济性", mode: "general", principles: ["energy", "ssc", "specificity"],
         phases: ["着地", "支撑", "蹬离", "腾空"],
         keyPoints: ["着地点接近身体下方，避免明显跨步", "步频适中（经验：多数跑者 170–180 步/分钟附近）", "躯干稳定，骨盆不左右大幅下沉", "摆臂自然，不横向交叉过中线"],
         errors: [
@@ -61,7 +62,7 @@
         ] },
     ] },
     { id: "gymnastics", name: "体操（技巧）", group: "aesthetic", glyph: "flip", techniques: [
-      { id: "backtuck", name: "团身后空翻", mode: "general",
+      { id: "backtuck", name: "团身后空翻", mode: "general", principles: ["angular", "impulse"],
         phases: ["准备（屈膝摆臂）", "起跳（双臂上摆+伸髋）", "腾空团身", "打开", "落地"],
         keyPoints: ["起跳以向上为主，双臂摆到头上方再团身", "起跳时髋膝踝充分伸展，不提前后仰", "团身紧、抱膝快，旋转在最高点附近完成", "看到地面后及时打开，屈膝缓冲落地"],
         errors: [
@@ -71,7 +72,7 @@
         ] },
     ] },
     { id: "diving", name: "跳水", group: "aesthetic", glyph: "dive", techniques: [
-      { id: "takeoff", name: "起跳与入水", mode: "general",
+      { id: "takeoff", name: "起跳与入水", mode: "general", principles: ["angular", "balance"],
         phases: ["走板/站立", "起跳", "空中动作", "打开", "入水"],
         keyPoints: ["起跳与板的弹性节奏一致", "空中动作开始前有充分的腾起高度", "打开后身体成直线，压水花", "入水角度接近垂直"],
         errors: [
@@ -80,7 +81,7 @@
         ] },
     ] },
     { id: "volleyball", name: "排球", group: "net", glyph: "spike", techniques: [
-      { id: "spike", name: "扣球", mode: "general",
+      { id: "spike", name: "扣球", mode: "general", principles: ["chain", "impulse", "ssc"],
         phases: ["助跑（常用三步或四步）", "制动踏跳（双脚）", "起跳（双臂后摆再上摆）", "空中挥臂", "击球", "落地"],
         keyPoints: ["助跑最后一步大且快，身体后倾制动", "双臂从后向前上方用力摆动带动起跳", "空中形成“反弓”，挥臂以肩带肘带腕", "击球点在身体前上方最高点附近", "双脚落地并屈膝缓冲"],
         errors: [
@@ -88,7 +89,7 @@
           { error: "击球点靠后或过低", look: "击球瞬间球在头部后方，手臂未伸直", tech: "起跳时机早于或晚于来球", body: "肩关节灵活性不足", drills: ["抛球定点扣球", "看二传出手再助跑的节奏练习", "肩关节灵活性练习"], risk: "肩袖负担增大" },
           { error: "单脚落地或落地僵硬", look: "落地时一侧先着地，膝关节接近伸直", tech: "空中失去平衡", body: "核心与离心力量不足", drills: ["跳箱落地定型", "空中平衡练习"], risk: "踝扭伤（常见落在对方或队友脚上）、前交叉韧带" },
         ] },
-      { id: "set", name: "二传传球", mode: "general",
+      { id: "set", name: "二传传球", mode: "general", principles: ["chain", "balance"],
         phases: ["移动到位", "取位（正对出球方向）", "手型准备", "触球（缓冲+发力）", "跟随"],
         keyPoints: ["提前到位，在球下方取位", "手型在额前上方，双手成半球形，拇指食指成三角", "触球时全身协调：屈膝缓冲再蹬伸", "出手方向由手指与手腕控制，跟随动作指向目标"],
         errors: [
@@ -97,7 +98,7 @@
         ] },
     ] },
     { id: "badminton", name: "羽毛球", group: "net", glyph: "racket", techniques: [
-      { id: "smash", name: "杀球与步法", mode: "general",
+      { id: "smash", name: "杀球与步法", mode: "general", principles: ["chain", "balance"],
         phases: ["启动（分腿垫步）", "后退步法", "起跳/蹬转", "挥拍击球", "回位"],
         keyPoints: ["对手击球瞬间分腿垫步", "侧身后退，最后一步到位", "蹬地转髋带动转肩挥臂", "击球点在身体右前上方（右手）", "击球后迅速回中"],
         errors: [
@@ -106,7 +107,7 @@
         ] },
     ] },
     { id: "tennis", name: "网球", group: "net", glyph: "racket", techniques: [
-      { id: "serve", name: "发球", mode: "general",
+      { id: "serve", name: "发球", mode: "general", principles: ["chain", "ssc"],
         phases: ["准备", "抛球", "下蹲蓄力（奖杯姿势）", "蹬伸挥拍", "击球", "随挥"],
         keyPoints: ["抛球稳定，位置在身体前上方", "奖杯姿势时膝关节屈曲、肩部侧转", "由下至上发力：蹬地→转髋→转肩→挥臂→旋腕", "击球点高，手臂伸直"],
         errors: [
@@ -115,14 +116,14 @@
         ] },
     ] },
     { id: "basketball", name: "篮球", group: "field", glyph: "shoot", techniques: [
-      { id: "jumpshot", name: "跳投", mode: "general",
+      { id: "jumpshot", name: "跳投", mode: "general", principles: ["balance", "impulse", "variability"],
         phases: ["接球/运球急停", "屈膝下蹲", "起跳", "出手（最高点附近）", "落地"],
         keyPoints: ["急停稳，双脚与肩同宽", "起跳垂直，落地点与起跳点接近", "投篮手肘关节对准篮筐，出手时手臂伸直、手腕下压", "出手时机在最高点附近"],
         errors: [
           { error: "起跳前冲或后仰不稳定", look: "落地点与起跳点前后差距大", tech: "急停不稳", body: "核心和下肢离心控制不足", drills: ["急停跳投定点练习", "单腿稳定训练"], risk: "—" },
           { error: "出手过早或过晚", look: "出手时身体仍在上升或已开始下落", tech: "节奏不一致", body: "纵跳高度不足导致提前出手", drills: ["近距离节奏投篮", "纵跳力量训练"], risk: "—" },
         ] },
-      { id: "landing", name: "落地与变向", mode: "general",
+      { id: "landing", name: "落地与变向", mode: "general", principles: ["balance", "injury", "ssc"],
         phases: ["腾空", "着地", "缓冲", "变向蹬出"],
         keyPoints: ["双脚或前脚掌着地，膝与脚尖同方向", "着地后屈髋屈膝缓冲", "变向时降低重心"],
         errors: [
@@ -130,7 +131,7 @@
         ] },
     ] },
     { id: "football", name: "足球", group: "field", glyph: "kick", techniques: [
-      { id: "shot", name: "脚背正面射门", mode: "general",
+      { id: "shot", name: "脚背正面射门", mode: "general", principles: ["chain", "balance"],
         phases: ["助跑", "支撑脚站位", "摆腿", "触球", "随摆"],
         keyPoints: ["支撑脚在球侧方约一拳距离，脚尖指向目标", "摆腿以髋发力，小腿快速前摆", "触球时脚背绷直、踝关节锁紧", "身体略前倾压住球"],
         errors: [

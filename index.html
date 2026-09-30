@@ -626,6 +626,70 @@ header.bar .ttl { letter-spacing: 0.2em; }
 .hero-vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 58% 40%; filter: brightness(0.72) contrast(1.05); background: #000 center / cover no-repeat url(img/opening-poster.jpg); }
 .hero .hero-veil { background: linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.1) 30%, rgba(0,0,0,0.15) 65%, rgba(5,5,5,0.85) 100%) !important; }
 
+/* ================= 实时动作捕捉 ================= */
+.live-setup { font-size: 14px; margin: 4px 0 10px; }
+.live-who { margin: 0 0 12px; }
+.livestage { position: relative; background: #000; border: 1px solid var(--line); aspect-ratio: 3 / 4; max-height: 72svh; width: 100%; overflow: hidden; }
+@media (orientation: landscape) { .livestage { aspect-ratio: 16 / 9; } }
+.livestage video, .livestage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.livestage.mirror video, .livestage.mirror canvas { transform: scaleX(-1); }
+.live-hud { position: absolute; left: 12px; top: 12px; right: 12px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; }
+.live-count b { font-family: var(--num); font-size: 64px; line-height: 0.9; color: var(--ivory); text-shadow: 0 2px 16px rgba(0,0,0,0.6); }
+.live-count span { margin-left: 6px; font-size: 14px; letter-spacing: 0.2em; color: rgba(242,237,228,0.75); }
+.live-metric { text-align: right; font-size: 13px; line-height: 1.6; color: rgba(242,237,228,0.85); text-shadow: 0 1px 8px rgba(0,0,0,0.7); font-variant-numeric: tabular-nums; }
+.live-metric b { font-family: var(--num); font-size: 22px; color: var(--ivory); font-weight: 400; }
+.live-cue { position: absolute; left: 12px; right: 12px; bottom: 14px; text-align: center; font-family: var(--serif); font-size: clamp(18px, 5vw, 26px); letter-spacing: 0.12em; color: #0A0A0B; background: rgba(242,237,228,0.92); padding: 10px 12px; opacity: 0; transform: translateY(8px); transition: opacity .25s ease, transform .25s ease; }
+.live-cue.on { opacity: 1; transform: none; }
+.live-warn { position: absolute; left: 12px; right: 12px; top: 96px; text-align: center; font-size: 13px; letter-spacing: 0.06em; color: #F2D9A0; text-shadow: 0 1px 8px rgba(0,0,0,0.8); }
+.live-idle { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; font-size: 14px; letter-spacing: 0.12em; color: rgba(242,237,228,0.6); }
+.live-ctrl { display: flex; gap: 8px; margin-top: 12px; }
+.live-ctrl .btn { flex: 1; min-height: 46px; white-space: nowrap; padding: 0 6px; font-size: 14px; letter-spacing: 0.08em; }
+.live-fps { font-size: 12px; color: var(--muted); margin: 6px 0 0; min-height: 1em; }
+.live-sum { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 16px; }
+.live-sum h3 { font-family: var(--serif); letter-spacing: 0.1em; margin: 0 0 10px; }
+.live-sum .kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin: 10px 0 14px; }
+.live-sum .kv div { border: 1px solid var(--line); padding: 10px; }
+.live-sum .kv span { display: block; font-size: 12px; color: var(--muted); }
+.live-sum .kv b { font-family: var(--num); font-size: 22px; font-weight: 400; }
+.live-sum table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.live-sum th, .live-sum td { border-bottom: 1px solid var(--line); padding: 6px 4px; text-align: left; }
+.live-sum .fault { color: #E7B96A; }
+.pchips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 12px 0 0; font-size: 12px; color: var(--muted); }
+.pchips button { border: 1px solid rgba(201,164,92,0.55); background: transparent; color: var(--ivory); border-radius: 999px; min-height: 30px; padding: 0 12px; font-size: 12px; letter-spacing: 0.06em; cursor: pointer; }
+
+/* ================= 知识库 ================= */
+#v-kb .tabs { position: sticky; top: 56px; }
+.kb-step { display: grid; grid-template-columns: 44px 1fr; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.kb-step .no { font-family: var(--num); font-size: 34px; line-height: 1; color: var(--gold); }
+.kb-step h3 { margin: 0 0 4px; font-family: var(--serif); letter-spacing: 0.1em; }
+.kb-step .q { margin: 0 0 8px; font-family: var(--editorial); font-style: italic; color: rgba(242,237,228,0.75); }
+.kb-step ul { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.7; }
+.kb-step .app { margin-top: 8px; font-size: 12px; letter-spacing: 0.08em; color: var(--muted); }
+.kb-dom { margin: 22px 0 6px; font-family: var(--serif); letter-spacing: 0.16em; font-size: 18px; }
+.kb-dom small { display: block; font-family: var(--editorial); font-style: italic; letter-spacing: 0.02em; font-size: 14px; color: var(--muted); margin-top: 2px; }
+details.kb-p { border: 1px solid var(--line); margin: 8px 0; padding: 0 14px; }
+details.kb-p summary { padding: 14px 0; cursor: pointer; list-style: none; }
+details.kb-p summary b { display: block; font-size: 16px; letter-spacing: 0.06em; }
+details.kb-p summary span { display: block; font-size: 13px; color: rgba(242,237,228,0.7); margin-top: 4px; line-height: 1.6; }
+details.kb-p[open] { border-color: rgba(201,164,92,0.5); }
+.kb-p h4 { margin: 12px 0 4px; font-size: 12px; letter-spacing: 0.2em; color: var(--gold); font-weight: 500; }
+.kb-p p, .kb-p li { font-size: 14px; line-height: 1.7; }
+.kb-p ul { margin: 0; padding-left: 18px; }
+.kb-p .limits { border-left: 2px solid #E7B96A; padding: 6px 10px; background: rgba(231,185,106,0.06); }
+.kb-lv { display: inline-block; font-size: 11px; letter-spacing: 0.1em; border: 1px solid var(--line); padding: 2px 8px; margin: 0 6px 6px 0; color: rgba(242,237,228,0.8); }
+.kb-lv.debate { border-color: #E7B96A; color: #E7B96A; }
+.kb-ref { font-size: 12px !important; color: var(--muted); word-break: break-word; }
+.kb-p .pchips { margin-bottom: 14px; }
+.kb-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+.kb-table th, .kb-table td { border-bottom: 1px solid var(--line); padding: 8px 4px; text-align: left; vertical-align: top; }
+.kb-table td.c { text-align: center; font-size: 16px; }
+.kb-table .note { font-size: 12px; color: var(--muted); }
+.kb-deb { border: 1px solid var(--line); padding: 14px; margin: 10px 0; }
+.kb-deb h3 { margin: 0 0 8px; font-family: var(--serif); letter-spacing: 0.06em; font-size: 17px; }
+.kb-deb p { margin: 6px 0; font-size: 14px; line-height: 1.7; }
+.kb-deb p b { display: inline-block; min-width: 4.5em; font-size: 12px; letter-spacing: 0.14em; color: var(--muted); font-weight: 500; }
+.kb-deb p.ours b { color: var(--gold); }
+
 /* ================= 开屏：实拍视频 + 大号衬线标题 ================= */
 .opening { position: fixed; inset: 0; z-index: 200; background: #000; color: var(--ivory); overflow: hidden; transition: opacity 1s cubic-bezier(.6,0,.2,1), transform 1.2s cubic-bezier(.6,0,.2,1); }
 .opening[hidden] { display: none; }
@@ -712,6 +776,18 @@ header.bar .ttl { letter-spacing: 0.2em; }
         <h2 id="heroStory">看清每一次触地</h2>
         <p class="italic" id="heroLine">Where speed meets science.</p>
         <button class="btn line" id="heroGo" data-action="sprint">分析一段短跑视频</button>
+      </section>
+      <section class="story">
+        <p class="eyebrow">实时动作捕捉</p>
+        <h2>边练边看</h2>
+        <p class="italic">Real-time form, rep by rep.</p>
+        <button class="btn line" id="goLive">打开实时捕捉</button>
+      </section>
+      <section class="story">
+        <p class="eyebrow">知识库</p>
+        <h2>先懂原理，再练动作</h2>
+        <p class="italic">Principles before prescriptions.</p>
+        <button class="btn line" id="goKb">进入知识库</button>
       </section>
       <section class="story" id="heroEvent"></section>
     </div>
@@ -819,6 +895,40 @@ header.bar .ttl { letter-spacing: 0.2em; }
   <div id="sportBody"></div>
 </section>
 
+<!-- 实时动作捕捉 -->
+<section class="view" id="v-live">
+  <div class="chips" id="liveDrills"></div>
+  <p class="lead live-setup" id="liveSetup"></p>
+  <div class="row live-who"><label for="liveAthlete">运动员</label><select id="liveAthlete"></select></div>
+  <div class="livestage" id="liveStage">
+    <video id="liveCam" playsinline muted></video>
+    <canvas id="liveCanvas"></canvas>
+    <div class="live-hud" id="liveHud" hidden>
+      <div class="live-count"><b id="liveReps">0</b><span id="liveUnit">次</span></div>
+      <div class="live-metric" id="liveMetric"></div>
+    </div>
+    <div class="live-cue" id="liveCue"></div>
+    <div class="live-warn" id="liveWarn"></div>
+    <div class="live-idle" id="liveIdle">点“开始”打开摄像头</div>
+  </div>
+  <div class="live-ctrl">
+    <button class="btn go" id="liveStart">开始</button>
+    <button class="btn" id="liveFlip">切换镜头</button>
+    <button class="btn" id="liveVoice" aria-pressed="true">语音：开</button>
+  </div>
+  <p class="live-fps" id="liveFps"></p>
+  <div id="liveSummary"></div>
+  <details class="guide"><summary>实时模式能做什么、不能做什么</summary><ul id="liveLimits"></ul></details>
+</section>
+
+<!-- 知识库 -->
+<section class="view" id="v-kb">
+  <h2 class="big">知识库</h2>
+  <p class="lead">从原理到动作：每条原理都写清楚它在哪些项目里起作用、在 App 里怎么测，以及它什么时候不成立。</p>
+  <div class="tabs" id="kbTabs"><button data-k="loop" aria-pressed="true">训练闭环</button><button data-k="principles" aria-pressed="false">原理</button><button data-k="measure" aria-pressed="false">测量</button><button data-k="debate" aria-pressed="false">争议</button></div>
+  <div id="kbBody"></div>
+</section>
+
 <!-- 运动员 -->
 <section class="view" id="v-athlete">
   <div class="board" id="aBoard"></div>
@@ -894,6 +1004,8 @@ header.bar .ttl { letter-spacing: 0.2em; }
 <script src="engine.js"></script>
 <script src="coach.js"></script>
 <script src="sports.js"></script>
+<script src="knowledge.js"></script>
+<script src="live.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
