@@ -1603,7 +1603,8 @@
     $("heroGo").textContent = H.go; $("heroGo").dataset.action = H.action;
     try { localStorage.setItem("cm_world", w); } catch (e) { /* 忽略 */ }
   }
-  // 开场即封面：田径场日出（本次打开第一次完整播放；之后快速亮起；点一下可加速）
+  let videoUrlP = null;   // 开屏与封面共用的视频 blob 地址（见 videoUrl）
+  // 开场：本次打开第一次先播实拍开屏，之后直接进封面
   {
     const hero = $("hero");
     let seen = false; try { seen = sessionStorage.getItem("cm_intro") === "1"; sessionStorage.setItem("cm_intro", "1"); } catch (e) { /* 忽略 */ }
@@ -1615,30 +1616,53 @@
   // 首页封面视频：离开首页时暂停省电，回到首页再播；不能自动播放时停在静帧
   function playHeroVid() {
     const v = $("heroVid"); if (!v) return;
-    if (!v.getAttribute("src")) v.src = "img/opening.mp4";
-    const p = v.play(); if (p && p.catch) p.catch(() => {});
+    videoUrl().then(u => { if (v.src !== u) v.src = u; return startVid(v); }).catch(() => {});
   }
   document.addEventListener("visibilitychange", () => { const v = $("heroVid"); if (v && document.hidden) v.pause(); else if (v && $("v-home").classList.contains("on")) playHeroVid(); });
+  $("hero").addEventListener("click", () => { const v = $("heroVid"); if (v && v.paused) playHeroVid(); });
+  // 视频先整段下载成 blob 再播放：Safari 播放 Service Worker 返回的视频经常失败，blob 地址最稳，离线也能播
+  function videoUrl() {
+    if (!videoUrlP) videoUrlP = fetch("img/opening.mp4").then(r => { if (!r.ok) throw new Error("视频 " + r.status); return r.blob(); })
+      .then(b => URL.createObjectURL(b.type === "video/mp4" ? b : new Blob([b], { type: "video/mp4" })))
+      .catch(e => { videoUrlP = null; throw e; });
+    return videoUrlP;
+  }
+  function startVid(v) { v.muted = true; v.playsInline = true; const p = v.play(); return p && p.then ? p : Promise.resolve(); }
   // 开屏视频：实拍 + 大号衬线标题。播完、点“开始训练”或“跳过”进入首页。
-  // 低电量模式等情况下视频不能自动播放时，改为静帧慢推镜头，照常进入。
+  // 视频没到或不能自动播放（低电量模式等）时先静帧慢推；点一下画面会再试着播放。
   function playOpening(done) {
     const box = $("opening"), vid = $("openVid"), prog = $("openProg");
-    let closed = false, raf = 0;
+    let closed = false, playing = false, raf = 0, stillTimer = 0;
     const close = () => {
-      if (closed) return; closed = true; cancelAnimationFrame(raf);
+      if (closed) return; closed = true; cancelAnimationFrame(raf); clearTimeout(stillTimer);
       box.classList.add("out"); done();
-      setTimeout(() => { box.hidden = true; try { vid.pause(); vid.removeAttribute("src"); vid.load(); } catch (e) { /* 忽略 */ } }, 1300);
+      setTimeout(() => { box.hidden = true; try { vid.pause(); } catch (e) { /* 忽略 */ } }, 1300);
     };
     const tick = () => { if (vid.duration) prog.style.transform = `scaleX(${Math.min(1, vid.currentTime / vid.duration)})`; raf = requestAnimationFrame(tick); };
-    const still = () => { box.classList.add("still"); prog.style.transition = "transform 5.5s linear"; requestAnimationFrame(() => { prog.style.transform = "scaleX(1)"; }); setTimeout(close, 5800); };
+    const still = () => {
+      if (closed || playing || box.classList.contains("still")) return;
+      box.classList.add("still"); prog.style.transition = "transform 5.5s linear"; requestAnimationFrame(() => { prog.style.transform = "scaleX(1)"; });
+      stillTimer = setTimeout(close, 5800);
+    };
+    const go = () => {
+      if (closed || playing) return;
+      videoUrl().then(u => {
+        if (closed) return;
+        if (vid.src !== u) vid.src = u;
+        return startVid(vid).then(() => {
+          if (closed) return;
+          playing = true; clearTimeout(stillTimer); box.classList.remove("still"); prog.style.transition = "none"; raf = requestAnimationFrame(tick);
+        });
+      }).catch(still);
+    };
     box.hidden = false;
-    $("openGo").onclick = close; $("openSkip").onclick = close;
+    $("openGo").onclick = e => { e.stopPropagation(); close(); };
+    $("openSkip").onclick = e => { e.stopPropagation(); close(); };
+    box.onclick = go;
     vid.onended = close;
-    vid.onerror = () => { if (!closed && !box.classList.contains("still")) still(); };
-    vid.src = "img/opening.mp4";
-    const p = vid.play();
-    if (p && p.then) p.then(() => { raf = requestAnimationFrame(tick); }).catch(still); else raf = requestAnimationFrame(tick);
-    setTimeout(close, 12000);   // 保险：无论如何 12 秒后进入
+    go();
+    setTimeout(() => { if (!playing) still(); }, 3500);   // 3.5 秒还没播起来：先静帧慢推
+    setTimeout(close, 14000);   // 保险：无论如何 14 秒后进入
   }
   document.querySelectorAll(".mnav button[data-w]").forEach(b => b.onclick = () => setWorld(b.dataset.w));
   document.querySelectorAll(".mnav a").forEach(l => l.onclick = e => { e.preventDefault(); const t = document.querySelector(l.getAttribute("href")); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); });
