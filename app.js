@@ -22,8 +22,9 @@
   const MP4BOX_SOURCES = ["mp4box.all.min.js", "https://registry.npmmirror.com/mp4box/0.5.2/files/dist/mp4box.all.min.js", "https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js"];
   const WORK_LONG_SIDE = 1280;           // 处理分辨率：长边 1280 像素
   const MAX_SECONDS_WARN = 3;
-  const ACTION_NAME = { sprint: "短跑", clean: "高翻 / 抓举", general: "动作分析" };
+  const ACTION_NAME = { sprint: "短跑", clean: "高翻 / 抓举", general: "动作分析", live: "实时捕捉" };
   function actionLabel(o) {
+    if (o && o.action === "live" && o.drill && window.LIVE) { const d = LIVE.DRILLS.find(x => x.id === o.drill); if (d) return `实时　${d.name}`; }
     if (o && o.sportId && window.SPORTLIB) { const s = SPORTLIB.byId(o.sportId), t = SPORTLIB.tech(o.sportId, o.techId); if (s && t) return `${s.name}　${t.name}`; }
     return ACTION_NAME[o && o.action] || "";
   }
@@ -67,12 +68,17 @@
   // ---------------- 视图切换 ----------------
   const S = {};                // 当前分析的状态
   window.__cmState = S;        // 便于排查问题
+  // 实时动作捕捉的状态（放在前面：show() 离开页面时要用它关摄像头）
+  const LV = { drill: "squat", facing: "environment", voice: true, stream: null, running: false, session: null, smoother: null, raf: 0, vfc: 0,
+    t0: 0, n: 0, fpsT: 0, fpsN: 0, fps: 0, lastSpoken: "", lastSpokenT: 0, lastReps: 0, viewing: null };
   let viewStack = ["home"];
   const VIEW_META = {
     home: { title: "", step: 0 }, sport: { title: "项目技术库", step: 0 }, new: { title: "选择视频", step: 1 }, calib: { title: "片段与标定", step: 2 },
     process: { title: "分析", step: 3 }, result: { title: "分析结果", step: 0 }, athlete: { title: "运动员", step: 0 },
+    live: { title: "实时动作捕捉", step: 0 }, kb: { title: "知识库", step: 0 },
   };
   function show(v, push = true) {
+    if (v !== "live" && LV.running) stopLive(false);   // 离开实时页面：关摄像头
     document.querySelectorAll("section.view").forEach(s => s.classList.toggle("on", s.id === "v-" + v));
     if (push && viewStack[viewStack.length - 1] !== v) viewStack.push(v);
     const m = VIEW_META[v];
@@ -108,19 +114,21 @@
     const list = analyses.filter(a => !athleteFilter || a.athleteId === athleteFilter).sort((a, b) => b.id - a.id);
     $("historyList").innerHTML = list.length ? list.map(a => {
       const d = new Date(a.date);
-      const [val, unit] = a.action === "sprint"
+      const [val, unit] = a.action === "live"
+        ? (a.drill === "cmj" && a.summary.heightBest != null ? [(a.summary.heightBest * 100).toFixed(1), "cm 最好"] : a.drill === "balance" && a.summary.holdBest != null ? [a.summary.holdBest.toFixed(1), "s 最长"] : [String(a.summary.n || 0), a.drill === "highknee" ? "步" : "次"])
+        : a.action === "sprint"
         ? [a.summary.contact_time_s != null ? a.summary.contact_time_s.toFixed(3) : "–", "s 触地"]
         : a.action === "general"
         ? (a.summary.jump_height_cm != null ? [a.summary.jump_height_cm.toFixed(1), "cm 跳高"] : [a.summary.knee_min_deg != null ? a.summary.knee_min_deg.toFixed(0) : "–", "° 最小膝角"])
         : [a.summary.peak_bar_velocity_mps != null ? a.summary.peak_bar_velocity_mps.toFixed(2) : "–", "m/s 峰速"];
-      const n = (a.hits || []).length;
+      const n = a.action === "live" ? (a.faults || []).reduce((t, f) => t + f.n, 0) : (a.hits || []).length;
       const tag = a.reviewed ? `<span class="ok">教练已确认</span>` : n ? `<span class="flag">${n} 个待查问题</span>` : "";
       return `<li><button data-id="${a.id}">
         <span class="d"><b>${String(d.getDate()).padStart(2, "0")}</b>${d.getMonth() + 1}月</span>
         <span><span class="who">${esc(a.athleteName || "未指定")}</span><br><span class="what">${esc(actionLabel(a))}　${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}</span></span>
         <span class="val">${val}<small>${unit}</small>${tag}</span></button></li>`;
     }).join("") : `<li class="blank">还没有记录。选一个动作，分析第一段视频。</li>`;
-    $("historyList").querySelectorAll("button[data-id]").forEach(b => b.onclick = () => openSaved(Number(b.dataset.id)));
+    $("historyList").querySelectorAll("button[data-id]").forEach(b => b.onclick = () => { const rec = list.find(x => x.id === Number(b.dataset.id)); if (rec && rec.action === "live") openLiveSaved(rec); else openSaved(Number(b.dataset.id)); });
   }
   document.querySelectorAll(".lane").forEach(b => b.onclick = () => startNew(b.dataset.action));
 
@@ -1145,9 +1153,9 @@
     if (!all.length) { toast("还没有数据"); return; }
     const keys = [...new Set(all.flatMap(a => Object.keys(a.summary || {})))];
     const cardIds = CARDS.cards.map(c => c.id);
-    const head = ["日期", "运动员", "动作", "帧率", ...keys.map(k => (CM.LABELS[k] || [k])[0]), ...cardIds.map(id => id + "_AI"), ...cardIds.map(id => id + "_教练"), "教练备注"];
+    const head = ["日期", "运动员", "动作", "帧率", ...keys.map(k => (CM.LABELS[k] || (window.LIVE && LIVE.LABELS[k]) || [k])[0]), ...cardIds.map(id => id + "_AI"), ...cardIds.map(id => id + "_教练"), "教练备注"];
     const q = v => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const rows = all.map(a => [a.date, a.athleteName, ACTION_NAME[a.action], a.fpsReal, ...keys.map(k => a.summary[k]),
+    const rows = all.map(a => [a.date, a.athleteName, a.action === "live" ? actionLabel(a) : ACTION_NAME[a.action], a.fpsReal, ...keys.map(k => a.summary[k]),
       ...cardIds.map(id => (a.hits || []).includes(id) ? 1 : 0), ...cardIds.map(id => (a.verdicts || {})[id] || ""), a.coachNote].map(q).join(","));
     const csv = "\uFEFF" + [head.map(q).join(","), ...rows].join("\n");
     const file = new File([csv], `知练数据_${new Date().toISOString().slice(0, 10)}.csv`, { type: "text/csv" });
@@ -1569,14 +1577,246 @@
       <div class="phases-seq">${t.phases.map((p, i) => `<span><i>${i + 1}</i>${esc(p)}</span>`).join("")}</div>
       <h4>关键技术点</h4><ul class="kp">${t.keyPoints.map(k => `<li>${esc(k)}</li>`).join("")}</ul>
       <h4>常见错误</h4>${t.errors.map(er => `<details class="errd"><summary>${esc(er.error)}</summary>${errorRows(er)}</details>`).join("")}
+      ${principleChips(t.principles)}
       <button class="btn go" data-t="${t.id}" style="width:100%;margin-top:14px">分析这个技术的视频</button></article>`).join("") +
       `<p class="lead" style="font-size:13px;margin-top:14px">技术库按项群训练理论组织，内容为教练经验与教材共识，个别数值为经验参考，请结合老师意见使用。</p>`;
+    bindPrinciples($("sportBody"));
     $("sportBody").querySelectorAll("button[data-t]").forEach(b => b.onclick = () => {
       const t = SPORTLIB.tech(id, b.dataset.t);
       startNew(t.mode === "general" ? "general" : t.mode, { sportId: id, techId: t.id });
     });
     show("sport");
   }
+  // ---------------- 实时动作捕捉 ----------------
+  // 摄像头逐帧识别 → live.js 计算角度、计数、判断错误 → 画骨架、显示提示、可选语音。离开页面自动关摄像头。
+  const BONES = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28], [27, 29], [29, 31], [27, 31], [28, 30], [30, 32], [28, 32]];
+  const fmt = (v, d = 0) => Number.isFinite(v) ? v.toFixed(d) : "–";
+  const principleChips = ids => window.KB && ids && ids.length ? `<div class="pchips">背后的原理：${ids.map(id => KB.byId(id)).filter(Boolean).map(p => `<button data-p="${p.id}">${esc(p.name)}</button>`).join("")}</div>` : "";
+  const bindPrinciples = box => box.querySelectorAll(".pchips button[data-p]").forEach(b => b.onclick = () => openKb("principles", b.dataset.p));
+
+  async function openLive(drill) {
+    if (!window.LIVE) return;
+    if (drill) LV.drill = drill;
+    LV.viewing = null;
+    renderLiveDrills();
+    $("liveSummary").innerHTML = "";
+    $("liveLimits").innerHTML = LIVE.LIMITS.map(t => `<li>${esc(t)}</li>`).join("");
+    const athletes = (await dbAll("athletes")).sort((a, b) => a.name.localeCompare(b.name, "zh"));
+    $("liveAthlete").innerHTML = `<option value="">不指定</option>` + athletes.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join("");
+    const last = localStorage.getItem("cm_lastAthlete"); if (last && athletes.some(a => a.id === last)) $("liveAthlete").value = last;
+    show("live");
+  }
+  function renderLiveDrills() {
+    const D = LIVE.DRILLS.find(d => d.id === LV.drill);
+    $("liveDrills").innerHTML = LIVE.DRILLS.map(d => `<button aria-pressed="${d.id === LV.drill}" data-d="${d.id}">${esc(d.name)}</button>`).join("");
+    $("liveDrills").querySelectorAll("button").forEach(b => b.onclick = () => { if (LV.running) return toast("先点“结束”再换动作"); LV.drill = b.dataset.d; renderLiveDrills(); $("liveSummary").innerHTML = ""; });
+    $("liveSetup").innerHTML = `<b>${D.view === "side" ? "侧面拍摄" : D.view === "front" ? "正面拍摄" : "侧面或正面"}</b>　${esc(D.setup)}`;
+    $("liveUnit").textContent = D.unit;
+  }
+  function speak(text) {
+    if (!LV.voice || !text || !("speechSynthesis" in window)) return;
+    try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = "zh-CN"; u.rate = 1.05; speechSynthesis.speak(u); } catch (e) { /* 忽略 */ }
+  }
+  async function startLive() {
+    if (LV.running) return stopLive(true);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast("这个浏览器不能使用摄像头，请用 Safari 打开"); return; }
+    // iOS 只允许在点击时第一次发声：先说一个空句子“解锁”语音
+    if (LV.voice && "speechSynthesis" in window) { try { speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch (e) { /* 忽略 */ } }
+    const idle = $("liveIdle"); idle.hidden = false;
+    $("liveStart").disabled = true;
+    let lm;
+    try { lm = await getLandmarker(t => { idle.textContent = t + "…"; }); }
+    catch (e) { idle.textContent = "识别程序没有准备好：" + errText(e); $("liveStart").disabled = false; return; }
+    idle.textContent = "正在打开摄像头…";
+    try {
+      LV.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: LV.facing, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } });
+    } catch (e) {
+      idle.textContent = e && e.name === "NotAllowedError" ? "没有摄像头权限：请在 设置 → Safari → 相机 里允许，再点“开始”。" : "打不开摄像头：" + errText(e);
+      $("liveStart").disabled = false; return;
+    }
+    const cam = $("liveCam");
+    cam.srcObject = LV.stream; cam.muted = true; cam.playsInline = true;
+    try { await cam.play(); } catch (e) { /* 部分浏览器 play 会被拒绝，但画面仍会出来 */ }
+    $("liveStage").classList.toggle("mirror", LV.facing === "user");
+    idle.hidden = true; $("liveHud").hidden = false;
+    $("liveStart").disabled = false; $("liveStart").textContent = "结束"; $("liveSummary").innerHTML = "";
+    LV.session = LIVE.Session(LV.drill); LV.smoother = LIVE.Smoother();
+    LV.running = true; LV.t0 = performance.now(); LV.n = 0; LV.fpsT = LV.t0; LV.fpsN = 0; LV.lastReps = 0; LV.lastSpoken = "";
+    const step = () => {
+      if (!LV.running) return;
+      liveFrame(lm, cam);
+      if (cam.requestVideoFrameCallback) LV.vfc = cam.requestVideoFrameCallback(step); else LV.raf = requestAnimationFrame(step);
+    };
+    step();
+  }
+  function liveFrame(lm, cam) {
+    const W = cam.videoWidth, H = cam.videoHeight;
+    if (!W || !H || cam.readyState < 2) return;
+    const cv = $("liveCanvas"); if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    const now = performance.now(), t = (now - LV.t0) / 1000;
+    const ts = Math.max(lmClock + 1, Math.round(now)); lmClock = ts;   // 时间戳必须单调递增（和视频分析共用 lmClock）
+    let frame = null;
+    try {
+      const r = lm.detectForVideo(cam, ts);
+      // 画面外的点是识别程序“猜”的：一律当作看不到，免得算出不存在的膝角
+      const inView = p => p.x > -0.02 && p.x < 1.02 && p.y > -0.02 && p.y < 1.02;
+      const cands = (r.landmarks || []).map(l => l.map(p => [p.x * W, p.y * H, inView(p) ? (p.visibility == null ? 1 : p.visibility) : 0]));
+      const hgt = f => { const ys = f.map(p => p[1]); return Math.max(...ys) - Math.min(...ys); };
+      if (cands.length) frame = cands.reduce((b, f) => (hgt(f) > hgt(b) ? f : b));   // 画面里最大的人
+    } catch (e) { $("liveWarn").textContent = "识别出错：" + errText(e); return; }
+    const sm = frame ? LV.smoother.push(frame, t) : null;
+    const st = LV.session.push(sm, t);
+    drawLive(cv, sm, st);
+    // 帧率
+    LV.fpsN++; if (now - LV.fpsT > 1000) { LV.fps = LV.fpsN * 1000 / (now - LV.fpsT); LV.fpsN = 0; LV.fpsT = now; $("liveFps").textContent = `识别 ${LV.fps.toFixed(0)} 帧/秒${LV.fps < 15 ? "（偏低：跳高、步频误差会变大）" : ""}`; }
+    // 界面
+    $("liveReps").textContent = LV.drill === "balance" ? (st.holding ? st.holdS.toFixed(1) : (st.last ? st.last.hold.toFixed(1) : "0")) : st.reps;
+    $("liveMetric").innerHTML = liveMetricHtml(st);
+    $("liveWarn").textContent = !sm ? "没看到人：请让全身进入画面" : st.viewMsg || (st.features && !Number.isFinite(st.features.knee) ? "看不清膝和脚踝：请退后一点，让全身入镜" : "");
+    const cueEl = $("liveCue"); cueEl.textContent = st.cue; cueEl.classList.toggle("on", !!st.cue);
+    // 语音：新提示才说；每完成一次（没有提示时）报数
+    if (st.cue && (st.cue !== LV.lastSpoken || now - LV.lastSpokenT > 4000)) { speak(st.cue); LV.lastSpoken = st.cue; LV.lastSpokenT = now; }
+    else if (st.reps > LV.lastReps && !st.cue && LV.drill !== "balance") speak(String(st.reps));
+    LV.lastReps = st.reps;
+  }
+  function liveMetricHtml(st) {
+    const F = st.features || {}, L = st.last;
+    switch (LV.drill) {
+      case "squat": return `膝角 <b>${fmt(F.knee)}°</b><br>躯干 ${fmt(F.trunk)}°　小腿 ${fmt(F.shin)}°${L ? `<br>上一次最低 ${fmt(L.knee)}°` : ""}`;
+      case "squatFront": return `膝内扣 左 ${fmt(F.valgusL, 2)}　右 ${fmt(F.valgusR, 2)}${L ? `<br>上一次最大 ${fmt(Math.max(L.valgusL, L.valgusR), 2)}` : ""}`;
+      case "cmj": return st.airborne ? `<b>腾空</b>` : L ? `上一跳 <b>${fmt(L.height * 100)}</b> 厘米<br>腾空 ${fmt(L.flight, 3)} s　落地膝角 ${fmt(L.landKnee)}°` : "准备好就跳";
+      case "highknee": return `左腿 ${fmt(F.thighL)}°　右腿 ${fmt(F.thighR)}°${L ? `<br>上一步 ${fmt(L.thigh)}°` : ""}`;
+      case "balance": return st.holding ? `骨盆倾斜 <b>${fmt(Math.abs(F.pelvis), 1)}°</b>` : "抬起一只脚开始计时";
+    }
+    return "";
+  }
+  function drawLive(cv, f, st) {
+    const g = cv.getContext("2d");
+    g.clearRect(0, 0, cv.width, cv.height);
+    if (!f) return;
+    const bad = st.cue && st.last && st.last.faults && st.last.faults.length;
+    const lw = Math.max(3, cv.width / 240);
+    g.lineCap = "round"; g.lineWidth = lw;
+    for (const [a, b] of BONES) {
+      const p = f[a], q = f[b];
+      if (!p || !q || p[2] < 0.5 || q[2] < 0.5) continue;
+      g.strokeStyle = bad ? "rgba(231,185,106,0.95)" : "rgba(242,237,228,0.9)";
+      g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke();
+    }
+    g.fillStyle = "#C9A45C";
+    for (const i of [11, 12, 23, 24, 25, 26, 27, 28]) { const p = f[i]; if (p && p[2] >= 0.5) { g.beginPath(); g.arc(p[0], p[1], lw * 1.4, 0, Math.PI * 2); g.fill(); } }
+  }
+  function stopLive(showSum) {
+    const wasRunning = LV.running;
+    LV.running = false;
+    const cam = $("liveCam");
+    if (LV.vfc && cam.cancelVideoFrameCallback) cam.cancelVideoFrameCallback(LV.vfc);
+    cancelAnimationFrame(LV.raf);
+    if (LV.stream) { LV.stream.getTracks().forEach(tr => tr.stop()); LV.stream = null; }
+    cam.srcObject = null;
+    $("liveStart").textContent = "开始"; $("liveHud").hidden = true; $("liveIdle").hidden = false; $("liveIdle").textContent = "点“开始”打开摄像头";
+    $("liveCue").classList.remove("on"); $("liveWarn").textContent = "";
+    const cv = $("liveCanvas"); cv.getContext("2d").clearRect(0, 0, cv.width, cv.height);
+    if ("speechSynthesis" in window) { try { speechSynthesis.cancel(); } catch (e) { /* 忽略 */ } }
+    if (showSum && wasRunning && LV.session) renderLiveSummary(LV.session.summary(), true);
+  }
+  // 汇总：指标、每一次的记录、主要问题 + 提示语 + 背后的原理；可以保存到训练记录
+  function renderLiveSummary(S, canSave) {
+    const D = LIVE.DRILLS.find(d => d.id === S.drill);
+    const skip = new Set(["drill", "name", "reps", "faults"]);
+    const unitOf = k => (LIVE.LABELS[k] || [])[1] || "";
+    const show1 = (k, v) => {
+      if (k === "heightBest" || k === "heightMean" || k === "heightSd") return `${fmt(v * 100, 1)} cm`;
+      if (k === "fullRate" || k === "detectRate" || k === "viewOkRate") return v == null ? "–" : `${Math.round(v * 100)}%`;
+      if (k === "valgusMax" || k === "swayMean") return `${fmt(v, 2)}`;
+      return `${fmt(v, unitOf(k) === "s" ? 2 : 0)} ${unitOf(k) === "s" ? "s" : unitOf(k)}`;
+    };
+    const kv = Object.entries(S).filter(([k, v]) => !skip.has(k) && (typeof v === "number" || v == null) && LIVE.LABELS[k])
+      .map(([k, v]) => `<div><span>${esc(LIVE.LABELS[k][0])}</span><b>${k === "n" ? v : show1(k, v)}</b></div>`).join("");
+    const cols = { squat: [["knee", "最低膝角", 0], ["trunk", "躯干", 0], ["down", "下蹲 s", 2], ["up", "起立 s", 2]], squatFront: [["depth", "下蹲深度", 2], ["valgusL", "左内扣", 2], ["valgusR", "右内扣", 2]],
+      cmj: [["height", "跳高 cm", 1, 100], ["flight", "腾空 s", 3], ["landKnee", "落地膝角", 0]], highknee: [["side", "腿"], ["thigh", "抬腿角", 0]], balance: [["hold", "保持 s", 1], ["pelvis", "骨盆°", 1], ["sway", "晃动", 2]] }[S.drill];
+    const rows = S.reps.slice(-30).map(r => `<tr><td>${r.n}</td>${cols.map(([k, , d, mul]) => `<td>${typeof r[k] === "string" ? (r[k] === "L" ? "左" : "右") : fmt(r[k] * (mul || 1), d)}</td>`).join("")}<td class="fault">${r.faults.map(k => ({ shallow: "深度不够", lean: "前倾过大", heel: "脚跟离地", hipfirst: "髋先起", valgus: "膝内扣", stiff: "落地僵硬", low: "抬腿低", back: "后仰", pelvis: "骨盆下沉", sway: "晃动大" }[k] || k)).join("、")}</td></tr>`).join("");
+    const faults = S.faults.length ? S.faults.map(f => `<li><b>${f.n} 次</b>　${esc(f.cue || f.key)}</li>`).join("") : `<li>没有发现明显问题。</li>`;
+    $("liveSummary").innerHTML = `<div class="live-sum">
+      <h3>${esc(D.name)}　${S.n} ${esc(D.unit === "秒" ? "次" : D.unit)}</h3>
+      <div class="kv">${kv}</div>
+      <h4>主要问题（按出现次数）</h4><ul>${faults}</ul>
+      ${principleChips(D.principles)}
+      ${S.reps.length ? `<h4 style="margin-top:16px">每一次</h4><div class="tablewrap"><table><tr><th>#</th>${cols.map(c => `<th>${c[1]}</th>`).join("")}<th>问题</th></tr>${rows}</table></div>` : ""}
+      <p class="lead" style="font-size:12px;margin-top:10px">实时测量用于练习中的反馈；毫秒级指标请用 240 帧慢动作视频分析。阈值为经验值，需教练校准。</p>
+      ${canSave && S.n ? `<button class="btn go" id="liveSave" style="width:100%;margin-top:8px">保存到训练记录</button>` : ""}
+    </div>`;
+    bindPrinciples($("liveSummary"));
+    const sv = $("liveSave");
+    if (sv) sv.onclick = async () => {
+      const aid = $("liveAthlete").value, athletes = await dbAll("athletes"), a = athletes.find(x => x.id === aid);
+      const summary = {}; for (const [k, v] of Object.entries(S)) if (typeof v === "number" && Number.isFinite(v)) summary[k] = Math.round(v * 1000) / 1000;
+      const rec = { id: Date.now(), date: new Date().toISOString(), action: "live", drill: S.drill, athleteId: aid || null, athleteName: a ? a.name : "",
+        summary, reps: S.reps, faults: S.faults, hits: [] };
+      await dbPut("analyses", rec);
+      if (aid) localStorage.setItem("cm_lastAthlete", aid);
+      sv.disabled = true; sv.textContent = "已保存"; toast("已保存到训练记录");
+    };
+  }
+  async function openLiveSaved(rec) {
+    await openLive(rec.drill);
+    const D = LIVE.DRILLS.find(d => d.id === rec.drill);
+    const S = Object.assign({ drill: rec.drill, name: D.name, reps: rec.reps || [], faults: rec.faults || [] }, rec.summary);
+    renderLiveSummary(S, false);
+    $("liveSummary").insertAdjacentHTML("beforeend", `<button class="btn" id="liveDel" style="width:100%;margin-top:10px">删除这条记录</button>`);
+    $("liveDel").onclick = async () => { if (!confirm("删除这条记录？删除后无法恢复。")) return; await dbDel("analyses", rec.id); toast("已删除"); show("home"); };
+  }
+  $("liveStart").onclick = startLive;
+  $("liveFlip").onclick = async () => { LV.facing = LV.facing === "user" ? "environment" : "user"; if (LV.running) { stopLive(false); await startLive(); } else toast(LV.facing === "user" ? "已切换到前置镜头" : "已切换到后置镜头"); };
+  $("liveVoice").onclick = () => { LV.voice = !LV.voice; $("liveVoice").setAttribute("aria-pressed", LV.voice); $("liveVoice").textContent = "语音：" + (LV.voice ? "开" : "关"); if (!LV.voice && "speechSynthesis" in window) speechSynthesis.cancel(); };
+  $("goLive").onclick = () => openLive();
+  document.addEventListener("visibilitychange", () => { if (document.hidden && LV.running) stopLive(true); });
+
+  // ---------------- 知识库 ----------------
+  let kbTab = "loop";
+  function openKb(tab, pid) {
+    if (!window.KB) return;
+    kbTab = tab || kbTab;
+    renderKb(pid);
+    show("kb");
+    if (pid) { const el = document.getElementById("kbp-" + pid); if (el) { el.open = true; setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 50); } }
+  }
+  function refText(id) { const r = (window.COACH && COACH.REFS[id]) || KB.EXTRA_REFS[id]; return r ? `${esc(r.t)}${r.doi ? ` <span>doi:${esc(r.doi)}</span>` : ""}` : esc(id); }
+  function renderKb() {
+    document.querySelectorAll("#kbTabs button").forEach(b => { b.setAttribute("aria-pressed", b.dataset.k === kbTab); b.onclick = () => { kbTab = b.dataset.k; renderKb(); }; });
+    const box = $("kbBody");
+    if (kbTab === "loop") {
+      box.innerHTML = `<p class="lead" style="margin-top:14px">每一次训练都是一个闭环：先弄清成绩由什么决定，再测量、诊断、开处方、改动作，最后复测，回到起点。</p>` +
+        KB.LOOP.map((s, i) => `<div class="kb-step"><div class="no">${i + 1}</div><div><h3>${esc(s.name)}</h3><p class="q">${esc(s.q)}</p><ul>${s.steps.map(x => `<li>${esc(x)}</li>`).join("")}</ul><div class="app">在 App 里：${esc(s.app)}</div></div></div>`).join("");
+    } else if (kbTab === "principles") {
+      const techOf = pid => (window.SPORTLIB ? SPORTLIB.SPORTS.flatMap(s => s.techniques.filter(t => (t.principles || []).includes(pid)).map(t => ({ s, t }))) : []);
+      const drillOf = pid => (window.LIVE ? LIVE.DRILLS.filter(d => d.principles.includes(pid)) : []);
+      box.innerHTML = KB.DOMAINS.map(d => `<h3 class="kb-dom">${esc(d.name)}<small>${esc(d.q)}</small></h3>` + KB.PRINCIPLES.filter(p => p.domain === d.id).map(p => {
+        const ts = techOf(p.id), ds = drillOf(p.id);
+        return `<details class="kb-p" id="kbp-${p.id}"><summary><b>${esc(p.name)}</b><span>${esc(p.rule)}</span></summary>
+          <div>${p.level.map(l => `<span class="kb-lv ${l === "debate" ? "debate" : ""}">${esc(KB.LEVELS[l])}</span>`).join("")}</div>
+          <h4>为什么</h4><p>${esc(p.why)}</p>
+          <h4>在哪里体现</h4><ul>${p.seen.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+          <h4>怎么测</h4><ul>${p.measure.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+          <h4>适用边界</h4><p class="limits">${esc(p.limits)}</p>
+          ${p.refs.length ? `<h4>文献</h4>${p.refs.map(r => `<p class="kb-ref">${refText(r)}</p>`).join("")}` : ""}
+          ${ts.length || ds.length ? `<h4>相关技术与练习</h4><div class="pchips">${ts.map(({ s, t }) => `<button data-sport="${s.id}">${esc(s.name)}·${esc(t.name)}</button>`).join("")}${ds.map(x => `<button data-drill="${x.id}">实时·${esc(x.name)}</button>`).join("")}</div>` : ""}
+        </details>`;
+      }).join("")).join("");
+      box.querySelectorAll("button[data-sport]").forEach(b => b.onclick = () => openSport(b.dataset.sport));
+      box.querySelectorAll("button[data-drill]").forEach(b => b.onclick = () => openLive(b.dataset.drill));
+    } else if (kbTab === "measure") {
+      const M = KB.MEASURES;
+      box.innerHTML = `<p class="lead" style="margin-top:14px">同一个指标，用不同方法测，可靠程度不同。✓ 可靠　～ 有条件　✗ 不可靠</p>
+        <div class="tablewrap"><table class="kb-table"><tr><th>指标</th>${M.cols.map(c => `<th>${esc(c)}</th>`).join("")}</tr>
+        ${M.rows.map(r => `<tr><td>${esc(r.name)}${r.note ? `<div class="note">${esc(r.note)}</div>` : ""}</td>${r.v.map(v => `<td class="c">${v}</td>`).join("")}</tr>`).join("")}</table></div>`;
+    } else {
+      box.innerHTML = `<p class="lead" style="margin-top:14px">常见说法的正反两面，以及本系统的做法。</p>` + KB.DEBATES.map(d => `<div class="kb-deb"><h3>${esc(d.q)}</h3>
+        <p><b>正方</b>${esc(d.pro)}</p><p><b>反方</b>${esc(d.con)}</p><p class="ours"><b>我们的做法</b>${esc(d.ours)}</p>
+        ${d.refs.map(r => `<p class="kb-ref">${refText(r)}</p>`).join("")}</div>`).join("");
+    }
+  }
+  $("goKb").onclick = () => openKb("loop");
   // 结果页：技术要点检查（教练逐条判断）+ 常见错误对照
   function renderChecklist() {
     const box = $("checkBox");
