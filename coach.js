@@ -38,6 +38,7 @@
     rsi: { name: "跳深反应力量指数", unit: "", low: false, hint: "腾空高度 ÷ 触地时间" },
     squat: { name: "深蹲 1RM", unit: "kg", low: false },
     clean: { name: "高翻 1RM", unit: "kg", low: false },
+    ankle: { name: "踝背屈靠墙测试", unit: "cm", low: false, hint: "膝盖碰墙时脚尖离墙最远的距离（经验：< 10 cm 偏紧）" },
   };
   // 经验参考目标（可在档案中修改）
   const DEFAULT_TARGETS = {
@@ -376,30 +377,101 @@
     return [...f];
   }
 
-  function plan(a, P, today = new Date()) {
-    const start = new Date(today); start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));           // 本周一
-    const goal = a.goalDate ? new Date(a.goalDate) : null;
-    let weeks = goal ? Math.ceil((goal - start) / (7 * 864e5)) : 12;
-    weeks = clamp(weeks || 12, 4, 52);
+  // ---------------- 个人因素：年龄、训练年限、伤病 ----------------
+  const INJURY_RULES = {
+    hamstring: { name: "腘绳肌", match: /飞跑|最高速度|速度耐力|冲刺|120 m|150 m|助跑速度|短冲/, note: "（腘绳肌伤后：从 80% 速度开始逐周增加，需队医许可）", prevent: "北欧挺 2×5（腘绳肌预防，伤后负荷需康复师确认）" },
+    knee: { name: "膝", match: /跳|落地/, note: "（膝伤：跳跃量减半，不做跳深，需队医许可）", prevent: "落地定型跳 2×5、单腿蹲 2×8（膝关节预防）" },
+    ankle: { name: "踝", match: /跳|冲刺|变向|移动|步法/, note: "（踝伤：先在平整场地进行，逐步恢复强度）", prevent: "单腿平衡 3×30 秒、提踵 3×15（踝预防）" },
+    lowback: { name: "腰背", match: /深蹲|硬拉|高翻|抓举|挺举|跳耸肩/, note: "（腰伤：先用单腿蹲、腿举等代替杠铃动作，需康复师确认）", prevent: "核心抗伸展：死虫、鸟狗 各 3×10（腰背预防）" },
+    shoulder: { name: "肩", match: /扣球|发球|挥拍|抓举|挺举|投|过顶|药球|支撑/, note: "（肩伤：减少过顶动作次数）", prevent: "肩袖外旋、肩胛稳定 各 3×12（肩预防）" },
+    hip: { name: "髋/腹股沟", match: /跨步|弓步|冲刺|变向|射门/, note: "（髋/腹股沟伤：减少大幅度跨步和急变向）", prevent: "哥本哈根侧桥 2×8（内收肌预防）" },
+  };
+  function factorsOf(a, today) {
+    const age = isF(a.birthYear) ? today.getFullYear() - a.birthYear : null;
+    const youth = isF(age) && age < 16, novice = isF(a.trainingYears) && a.trainingYears < 2;
+    const injuries = (a.injuries || []).filter(x => x && INJURY_RULES[x.part]);
+    return { age, youth, novice, who: youth ? "青少年" : novice ? "训练不足 2 年" : null,
+      current: injuries.filter(x => x.status === "current"), history: injuries.filter(x => x.status !== "current") };
+  }
+  // 按个人因素改写一条训练内容
+  function adaptItem(item, F) {
+    let s = item;
+    if (F.who) {
+      if (/跳深/.test(s)) s = s.replace(/跳深/g, "跳箱落地") + `（${F.who}：暂不做跳深）`;
+      if (/\d+\s*%.*1RM|1RM|8[05]%|9[02]%/.test(s) && /深蹲|高翻|硬拉|抓举|挺举|力量/.test(s)) s += `（${F.who}：用能完成 8 次以上的重量，重点是动作质量）`;
+      else if (/跳跃总次数|每课约 \d+ 次|触地/.test(s)) s += `（${F.who}：跳跃次数减少约三成）`;
+    }
+    for (const x of F.current) { const R = INJURY_RULES[x.part]; if (R.match.test(s)) { s = s.replace(/跳深/g, x.part === "knee" ? "低箱落地" : "跳深") + R.note; } }
+    return s;
+  }
+
+  // ---------------- 负荷估计（RPE × 分钟，经验值）与自检 ----------------
+  // 计划生成后检查：任何一周的负荷 ÷ 前 4 周平均（急性/慢性负荷比）不应超过 1.3（Gabbett 2016 的建议区间 0.8–1.3）
+  const LOAD = { "加速": [6, 60], "最高速度": [7, 60], "速度耐力": [8, 60], "节奏跑": [4, 45], "力量": [7, 60], "快速伸缩复合": [7, 40], "核心与灵活性": [3, 30],
+    "北欧挺": [6, 10], "过渡周": [0, 0], "技术": [4, 45], "比赛模拟": [8, 45], "比赛或测试": [8, 45], "休息": [0, 0], "测试日": [7, 60],
+    "专项技术": [5, 75], "最大力量": [8, 60], "爆发力": [7, 60], "速度": [7, 50], "核心与预防": [4, 40], "恢复": [2, 40],
+    "低强度有氧": [3, 60], "乳酸阈": [7, 50], "最大摄氧量间歇": [8, 45], "长距离": [4, 90], "基本功与柔韧": [4, 60], "难度动作": [6, 75],
+    "成套练习": [7, 60], "专项体能": [6, 50], "心理与编排": [2, 40], "战术与对抗": [6, 75], "跳跃与爆发": [7, 45], "移动与敏捷": [6, 45],
+    "力量与预防": [5, 50], "技战术": [6, 75], "重复冲刺与有氧": [8, 45], "变向与落地": [6, 45], "预防": [3, 30] };
+  const blockLoad = b => { const k = (b.t || "").replace(/（.*）/, ""); if (k.startsWith("重点") || k.startsWith("预防：")) return 4 * 15; const L = LOAD[k] || [5, 45]; return L[0] * L[1]; };
+  function loadCheck(weeks) {
+    const L = weeks.map(w => w.days.reduce((s, d) => s + d.blocks.reduce((t, b) => t + blockLoad(b), 0), 0) * (w.deload ? 0.6 : 1) * (w.ramp || 1));
+    const ratio = L.map((x, i) => { const prev = L.slice(Math.max(0, i - 4), i); return prev.length >= 2 ? x / (prev.reduce((s, v) => s + v, 0) / prev.length) : null; });
+    const r = ratio.filter(isF), max = r.length ? Math.max(...r) : null;
+    return { weekly: L.map(Math.round), ratio: ratio.map(v => (isF(v) ? r2(v) : null)), max: isF(max) ? r2(max) : null, ok: !isF(max) || max <= 1.3 };
+  }
+
+  // 当天状态调整：黄色降强度，红色改恢复（原计划不补）
+  const HIGH = /加速|最高速度|速度耐力|力量|爆发|快速伸缩|比赛|乳酸阈|最大摄氧量|冲刺|跳跃|难度|成套|对抗/;
+  function adjustDay(day, R) {
+    if (!day || !R || R.level === "green" || R.level === "none") return day;
+    if (R.level === "red") return Object.assign({}, day, { adjusted: "red", blocks: [{ t: "恢复（今天状态差）", items: ["灵活性、放松慢跑或游泳 15–20 分钟、软组织放松", "原计划不要挪到之后几天补"] }] });
+    return Object.assign({}, day, { adjusted: "yellow", blocks: day.blocks.map(b => HIGH.test(b.t) ? { t: b.t + "（降强度）", items: ["今天状态一般：量减少约三分之一，强度控制在 80% 以下"].concat(b.items) } : b) });
+  }
+
+  function plan(a, P, today = new Date(), opts = {}) {
+    const monday = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+    const WEEK = 7 * 864e5, thisMon = monday(today);
+    let goal = a.goalDate ? new Date(a.goalDate + "T00:00:00") : null;
+    const day0 = new Date(today); day0.setHours(0, 0, 0, 0);
+    if (goal && goal < day0) goal = null;                                  // 目标日期已过：按无目标处理
+    // 计划从固定的起点开始（档案里的 planStart），按日期往前走；以前每次都从“今天”重算，今天永远是第 1 周（一般准备期），永远到不了赛前期
+    let start = a.planStart ? monday(new Date(a.planStart + "T00:00:00")) : thisMon;
+    if (!(start <= thisMon)) start = thisMon;
+    let weeks;
+    if (goal) {
+      weeks = Math.floor((monday(goal) - start) / WEEK) + 1;
+      if (weeks > 52) { start = new Date(monday(goal) - 51 * WEEK); if (start > thisMon) start = thisMon; weeks = Math.floor((monday(goal) - start) / WEEK) + 1; }
+    } else {
+      weeks = 12;
+      const k = Math.floor((thisMon - start) / WEEK / 12); start = new Date(start.getTime() + k * 12 * WEEK);   // 没有目标：每 12 周一个循环
+    }
+    weeks = clamp(weeks, 1, 52);
     const sessions = clamp(a.sessionsPerWeek || 4, 3, 6);
-    const focus = [...new Set([...(P.weakest || []), ...(a.focus || [])])];
-    // 各阶段周数
-    const counts = PHASES.map(p => Math.max(1, Math.round(weeks * p.share)));
-    let diff = weeks - counts.reduce((s, x) => s + x, 0);
-    for (let i = 0; diff !== 0; i = (i + 1) % 3) { if (diff > 0) { counts[i]++; diff--; } else if (counts[i] > 1) { counts[i]--; diff++; } }
+    const focus = opts.focus ? opts.focus.slice() : [...new Set([...(P.weakest || []), ...(a.focus || [])])];
+    const addons = opts.addons || {};
+    const F = factorsOf(a, today);
+    // 各阶段周数：赛前减量通常 1–2 周，计划 10 周以上时调整比赛期至少 2 周；不足 4 周时只安排赛前期和调整比赛期，2 周以内全部调整
+    let counts;
+    if (weeks >= 4) {
+      counts = PHASES.map(p => Math.max(1, Math.round(weeks * p.share)));
+      if (weeks >= 10) counts[3] = Math.max(2, counts[3]);
+      let diff = weeks - counts.reduce((s, x) => s + x, 0);
+      for (let i = 0; diff !== 0; i = (i + 1) % 3) { if (diff > 0) { counts[i]++; diff--; } else if (counts[i] > 1) { counts[i]--; diff++; } }
+    } else { const tp = Math.min(weeks, 2); counts = [0, 0, weeks - tp, tp]; }
     const sport = a.sport && root.SPORTLIB ? root.SPORTLIB.byId(a.sport) : null;
     const G = sport && sport.group !== "speed" ? GROUP_PLANS[sport.group] : null;
+    const NATIVE = G ? [] : ["accel", "speed", "se", "strength", "power", "reactive", "tech"];   // 短跑模板里已经按重点加量的能力
     const W = [];
     let wi = 0;
     PHASES.forEach((p, pi) => {
       for (let k = 0; k < counts[pi]; k++, wi++) {
         const deload = p.key !== "taper" && (k + 1) % 4 === 0;
         const test = deload || (p.key !== "taper" && k === counts[pi] - 1);
-        const ws = new Date(start); ws.setDate(ws.getDate() + wi * 7);
+        const ws = new Date(start.getTime() + wi * WEEK);
         const slots = DAY_SLOTS[sessions];
         const tpl = TEMPLATES[p.key];
-        const days = G ? slots.map((dow, si) => {
+        let days = G ? slots.map((dow, si) => {
           if (test && si === slots.length - 1) return { dow, day: WEEKDAY[dow], blocks: [{ t: "测试日", items: G.tests.slice(0, 3).concat(["结果录入档案，计划自动更新"]) }] };
           const L = G.lib[G.week[p.key][si % G.week[p.key].length]];
           const items = (L[p.key] || []).slice();
@@ -415,14 +487,45 @@
             : content(t, p.key, deload, focus)).map(b => ({ t: b.t, items: b.items.filter(Boolean) }));
           return { dow, day: WEEKDAY[dow], blocks };
         });
+        // 大脑判断的训练重点：每个重点每周 2 次（调整周 1 次、调整比赛期不加），放在非测试、非休息日
+        const train = days.map((d, i) => i).filter(i => !days[i].blocks.some(b => /测试日|休息|比赛或测试/.test(b.t)));
+        if (p.key !== "taper" && train.length) focus.filter(f => !NATIVE.includes(f) && addons[f]).forEach((f, fi) => {
+          for (let j = 0; j < (deload ? 1 : 2); j++) { const d = days[train[(fi * 2 + j * Math.max(1, Math.floor(train.length / 2))) % train.length]]; d.blocks.push({ t: "重点：" + (addons[f].name || f), items: [addons[f].addon] }); }
+        });
+        // 伤病预防：当前伤病和既往伤病都每周加一次预防练习
+        const prevent = [...new Set(F.current.concat(F.history).map(x => x.part))];
+        if (train.length) prevent.forEach((part, i) => { days[train[(i + 1) % train.length]].blocks.push({ t: "预防：" + INJURY_RULES[part].name, items: [INJURY_RULES[part].prevent] }); });
+        // 年龄、训练年限、当前伤病：逐条改写
+        days = days.map(d => Object.assign({}, d, { blocks: d.blocks.map(b => ({ t: b.t, items: b.items.map(it => adaptItem(it, F)) })) }));
         W.push({ index: wi, start: ws.toISOString().slice(0, 10), phase: p.key, phaseName: p.name, deload, test, days });
       }
     });
-    const phases = PHASES.map((p, i) => ({ key: p.key, name: p.name, goal: p.goal, weeks: counts[i] }));
-    return { weeks: W, phases, focus, sessions, total: weeks, group: G, sport, refs: G ? ["issurin2010", "gabbett2016"] : ["issurin2010", "haugen2019", "rumpf2016"] };
+    // 过渡周：阶段切换（尤其紧接调整周）时负荷会跳升；把这一周的量压到前几周平均的 1.25 倍以内
+    {
+      const raw = loadCheck(W).weekly, done = [];
+      W.forEach((w, i) => {
+        const prev = done.slice(-4), chronic = prev.length >= 2 ? prev.reduce((t, v) => t + v, 0) / prev.length : null;
+        let L = raw[i];
+        if (isF(chronic) && L > 1.25 * chronic && !w.deload) {
+          w.ramp = r2(1.25 * chronic / L); L *= w.ramp;
+          const d = w.days.find(x => !x.blocks.some(b => /测试日|休息/.test(b.t)));
+          if (d) d.blocks.unshift({ t: "过渡周", items: [`本周各项训练量约为课表的 ${Math.round(w.ramp * 100)}%：进入新阶段，负荷逐步增加，避免骤增`] });
+        }
+        done.push(L);
+      });
+    }
+    const phases = PHASES.map((p, i) => ({ key: p.key, name: p.name, goal: p.goal, weeks: counts[i] })).filter(p => p.weeks > 0);
+    const notes = [];
+    if (F.who) notes.push(`${F.who}：不做跳深和按 1RM 百分比的大强度力量，跳跃次数减少约三成，以动作质量和全面发展为主。`);
+    if (F.current.length) notes.push(`当前伤病（${F.current.map(x => INJURY_RULES[x.part].name).join("、")}）：相关内容已加注调整，恢复训练的进度须由队医或康复师确认。`);
+    if (weeks < 4 && goal) notes.push(`距离目标只有 ${weeks} 周：只安排赛前期和调整比赛期，不再追求能力大幅提高。`);
+    const LC = loadCheck(W);
+    if (!LC.ok) notes.push(`负荷自检：第 ${LC.ratio.findIndex(v => v > 1.3) + 1} 周的计划负荷是前几周平均的 ${LC.max} 倍，超过 1.3，请教练调整。`);
+    return { weeks: W, phases, focus, sessions, total: weeks, start: start.toISOString().slice(0, 10), group: G, sport, factors: F, notes, load: LC,
+      refs: G ? ["issurin2010", "gabbett2016"] : ["issurin2010", "haugen2019", "rumpf2016", "gabbett2016"] };
   }
 
   const API = { REFS, ELITE, TESTS, DEFAULT_TARGETS, RT, TAU_DEFAULT, xAt, tAt, vmaxFor100, tauFrom30,
-    latestTests, profile, insights, plan, readiness, loadRatio, focusFromHits, WEEKDAY, PHASES, GROUP_PLANS };
+    latestTests, profile, insights, plan, adjustDay, loadCheck, readiness, loadRatio, focusFromHits, WEEKDAY, PHASES, GROUP_PLANS, INJURY_RULES };
   if (typeof module !== "undefined" && module.exports) module.exports = API; else root.COACH = API;
 })(typeof self !== "undefined" ? self : this);

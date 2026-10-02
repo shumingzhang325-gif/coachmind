@@ -675,6 +675,7 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     const cd = cadenceFromLegSwing(fixed.pose, fs, TH.sprint);
     if (cd) { r.summary.cadence_swing_hz = cd.hz; r.summary.cadence_spm = Math.round(cd.hz * 60); r.cadenceFrames = cd.frames; }
     if (r.steps.length < 2 && cd) r.notes.unshift(`脚的落点看不清，已改用摆腿周期测出步频 ${cd.hz.toFixed(2)} 步/秒（${Math.round(cd.hz * 60)} 步/分钟）。`);
+    if (fs < 100) r.notes.unshift(`视频只有 ${Math.round(fs)} 帧/秒：每帧间隔 ${Math.round(1000 / fs)} 毫秒，而触地只有约 100 毫秒，触地时间、腾空时间、左右差异只能参考，诊断规则会自动放宽。请用 240 帧慢动作复测。`);
     if (r.steps.length < 2) r.notes.unshift("自动识别到的触地少于 2 次。常见原因：人太小（请用“选择运动员”框住他）、脚被遮挡、视频帧率太低。");
     return r;
   }
@@ -701,7 +702,8 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     }
     // 最低的脚（图像 y 最大）
     const footIdx = [27, 28, 29, 30, 31, 32];
-    const low = lowpass(P.map(f => f ? Math.max(...footIdx.map(j => f[j][1]).filter(isF)) : NaN), fs, c.foot_filter_hz);
+    const lowRaw = P.map(f => f ? Math.max(...footIdx.map(j => f[j][1]).filter(isF)) : NaN);
+    const low = lowpass(lowRaw, fs, c.foot_filter_hz);
     const bodyH = median(P.map(f => f ? Math.max(...footIdx.map(j => f[j][1]).filter(isF)) - f[0][1] : NaN));
     const ground = percentile(low, c.ground_percentile);
     const band = c.air_band_body_ratio * bodyH;
@@ -713,11 +715,16 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
       while (s0 > 0 && isF(low[s0 - 1]) && low[s0 - 1] < ground - fine) s0--;
       while (s1 < n - 1 && isF(low[s1 + 1]) && low[s1 + 1] < ground - fine) s1++;
       if (s0 === 0 || s1 === n - 1) continue;                        // 起跳或落地被截断
-      const t = (s1 - s0 + 1) / fs;
+      // 腾空时间：空中只受重力，脚的轨迹是抛物线。拟合明显离地的点（未滤波），求与地面的两个交点。
+      // 比“离地阈值线”准：不受阈值高度和帧率影响（30 fps 时阈值法最多偏低约 4 cm）；拟合不可靠时退回阈值法
+      let t = (s1 - s0 + 1) / fs, fitted = false;
+      const pts = []; for (let i = s0; i <= s1; i++) if (isF(lowRaw[i]) && lowRaw[i] < ground - band) pts.push([i / fs, ground - lowRaw[i]]);
+      const roots = parabolaRoots(pts);
+      if (roots && Math.abs(roots[0] - s0 / fs) < 2.5 / fs && Math.abs(roots[1] - (s1 + 1) / fs) < 2.5 / fs) { t = roots[1] - roots[0]; fitted = true; }
       const pre = knee.slice(Math.max(0, s0 - Math.round(0.6 * fs)), s0).filter(isF);
       const post = knee.slice(s1 + 1, Math.min(n, s1 + 1 + Math.round(0.35 * fs))).filter(isF);
       const armPeak = Math.max(...shoulder.slice(s0, s1 + 1).filter(isF));
-      jumps.push({ takeoff: s0, landing: s1 + 1, flight_s: r3(t), height_cm: r1(9.81 * t * t / 8 * 100),
+      jumps.push({ takeoff: s0, landing: s1 + 1, flight_s: r3(t), height_cm: r1(9.81 * t * t / 8 * 100), fitted,
         knee_min_pre_deg: pre.length ? r1(Math.min(...pre)) : null, knee_takeoff_deg: r1(knee[s0 - 1]),
         knee_landing_min_deg: post.length ? r1(Math.min(...post)) : null, arm_peak_deg: isF(armPeak) ? r1(armPeak) : null });
     }
@@ -725,7 +732,7 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     const fmin = a => { const v = a.filter(isF); return v.length ? r1(Math.min(...v)) : null; };
     const fmax = a => { const v = a.filter(isF); return v.length ? r1(Math.max(...v)) : null; };
     const summary = {};
-    if (best) Object.assign(summary, { jump_height_cm: best.height_cm, flight_time_s: best.flight_s, knee_min_pre_deg: best.knee_min_pre_deg,
+    if (best) Object.assign(summary, { jump_height_cm: best.height_cm, flight_time_s: best.flight_s, jump_fitted: best.fitted, knee_min_pre_deg: best.knee_min_pre_deg,
       knee_takeoff_deg: best.knee_takeoff_deg, landing_knee_min_deg: best.knee_landing_min_deg, arm_peak_deg: best.arm_peak_deg });
     Object.assign(summary, { n_jumps: jumps.length, knee_min_deg: fmin(knee), hip_min_deg: fmin(hip), elbow_min_deg: fmin(elbow), trunk_lean_max_deg: fmax(trunk), side_analyzed: side === "left" ? "左" : "右" });
     const notes = [];
@@ -733,6 +740,44 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     if (jumps.length) notes.push("跳跃高度按腾空时间计算（g·t²/8），要求起跳和落地时身体姿势相近；落地时屈膝更多会让结果偏高。");
     return { action: "general", fps: fs, summary, notes, jumps, legSwaps: fixed.swaps, pose: P,
       series: { knee, hip, elbow, shoulder, trunk, air } };
+  }
+
+  // 最小二乘拟合 y = a·t² + b·t + c（a < 0，开口向下），返回 y = 0 的两个根；点太少或形状不对返回 null
+  function parabolaRoots(pts) {
+    if (!pts || pts.length < 5) return null;
+    const t0 = pts[0][0], S = [0, 0, 0, 0, 0], Y = [0, 0, 0];
+    for (const [tt, y] of pts) { const x = tt - t0; let xp = 1; for (let k = 0; k < 5; k++) { S[k] += xp; if (k < 3) Y[k] += xp * y; xp *= x; } }
+    const M = [[S[4], S[3], S[2]], [S[3], S[2], S[1]], [S[2], S[1], S[0]]], R = [Y[2], Y[1], Y[0]];
+    const det = m => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    const D = det(M); if (!D) return null;
+    const col = i => M.map((row, r) => row.map((v, cc) => (cc === i ? R[r] : v)));
+    const a = det(col(0)) / D, b = det(col(1)) / D, c = det(col(2)) / D, disc = b * b - 4 * a * c;
+    if (!(a < 0) || disc <= 0) return null;
+    const q = Math.sqrt(disc), r1_ = (-b + q) / (2 * a), r2_ = (-b - q) / (2 * a);
+    return [t0 + Math.min(r1_, r2_), t0 + Math.max(r1_, r2_)];
+  }
+
+  // ---------- 测量误差 ----------
+  // 每个指标的误差估计：帧率决定的部分（每帧 1/fps）+ 方法本身的偏差（合成数据审查得到）+ 关键点抖动（经验值）。
+  // 诊断规则只有在“超出阈值的部分 > 误差”时才下结论，落在误差范围内的标为“边缘，建议复测”。
+  function uncertainty(result) {
+    const fs = isF(result.fps) && result.fps > 0 ? result.fps : 30, fr = 1 / fs, s = result.summary || {}, u = {};   // 帧率未知：按 30 帧保守估计，绝不当作“没有误差”
+    if (result.action === "sprint") {
+      const k = result.contactMethod === "vertical" ? 2 : 1;             // 跟拍/斜向用的“最低点静止”法边界更模糊
+      u.contact_time_s = k * fr + 0.006;                                 // 0.006 s：240 fps 合成数据上的系统偏差
+      u.flight_time_s = k * fr + 0.006;
+      if (isF(s.contact_time_s) && s.contact_time_s > 0) u.contact_asymmetry_pct = 100 * k * fr / s.contact_time_s;
+      // 着地距离：着地时刻差 1 帧，髋就前移了“速度 / 帧率”（10 m/s、240 fps 时约 4 cm），再加关键点抖动约 2 cm
+      const v = isF(s.hip_speed_mps) ? s.hip_speed_mps : isF(s.speed_mps) ? s.speed_mps : 9;
+      u.touchdown_distance_m = k * v * fr + 0.02;
+      u.trunk_lean_td_deg = 3; u.knee_angle_td_deg = 4;                 // 关键点抖动（经验值）
+    } else if (result.action === "clean") {
+      u.min_elbow_angle_first_pull_deg = 5; u.hip_angle_at_peak_velocity_deg = 5; u.bar_forward_max_m = 0.02;
+    } else if (result.action === "general") {
+      u.landing_knee_min_deg = 5; u.knee_min_pre_deg = 5;
+      if (isF(s.flight_time_s)) u.jump_height_cm = 9.81 * s.flight_time_s * (s.jump_fitted ? 0.5 : 1) * fr / 4 * 100 + 0.5;
+    }
+    return u;
   }
 
   // ---------- 高翻：杠铃片模板跟踪（归一化互相关） ----------
@@ -846,14 +891,25 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
 
   // ---------- 知识卡 ----------
   const OPS = { ">": (a, b) => a > b, "<": (a, b) => a < b, ">=": (a, b) => a >= b, "<=": (a, b) => a <= b };
+  // 返回“确认的问题”数组；数组的 borderline 属性里是“边缘结果”（在测量误差内、或样本太少），只提示复测，不当作问题
+  const MIN_CONTACTS = 4;
   function matchCards(result, TH, CARDS) {
-    const th = TH[result.action], hits = [];
+    const th = TH[result.action], hits = [], borderline = [], U = uncertainty(result);
     for (const card of CARDS.cards) {
       if (card.action !== result.action) continue;
-      const v = result.summary[card.condition.metric], t = th[card.condition.threshold];
+      const m = card.condition.metric, v = result.summary[m], t = th[card.condition.threshold];
       if (!isF(v) || !isF(t)) continue;
-      if (OPS[card.condition.op](v, t)) hits.push(Object.assign({}, card, { value: v, threshold_value: t, symptom_text: card.symptom.replace("{value}", fmt(v, (LABELS[card.condition.metric] || ["", ""])[1])).replace("{threshold}", t) }));
+      const u = U[m] || 0, op = card.condition.op, up = op === ">" || op === ">=";
+      const sure = up ? v > t + u : v < t - u;                       // 超出阈值的部分大于误差
+      const maybe = !sure && (up ? v > t - u : v < t + u);           // 在误差范围内
+      const unit = (LABELS[m] || ["", ""])[1];
+      const info = Object.assign({}, card, { value: v, threshold_value: t, uncertainty: u,
+        symptom_text: card.symptom.replace("{value}", fmt(v, unit) + (u ? `（±${fmt(u, unit)}）` : "")).replace("{threshold}", t) });
+      const fewSteps = result.action === "sprint" && !(result.summary.n_contacts >= MIN_CONTACTS);
+      if (sure && !fewSteps) hits.push(info);
+      else if (sure || maybe) borderline.push(Object.assign(info, { reason: fewSteps && sure ? `只识别到 ${result.summary.n_contacts || 0} 次触地，少于 ${MIN_CONTACTS} 次` : "在测量误差范围内" }));
     }
+    hits.borderline = borderline;
     return hits;
   }
 
@@ -883,6 +939,6 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
   function r3(v) { return Math.round(v * 1000) / 1000; } function r4(v) { return Math.round(v * 10000) / 10000; }
 
   const API = { median, percentile, lowpass, derivative, angle, segments, fillNaN, SIDES, SKELETON,
-    analyzeSprint, analyzeGeneral, cadenceFromLegSwing, detectContactsVertical, sprintFromContacts, sprintBase, unswapLegs, analyzeClean, PlateTracker, matchCards, LABELS, fmt, PLATE_DIAMETER_M: 0.45 };
+    analyzeSprint, analyzeGeneral, cadenceFromLegSwing, detectContactsVertical, sprintFromContacts, sprintBase, unswapLegs, analyzeClean, PlateTracker, matchCards, uncertainty, parabolaRoots, LABELS, fmt, PLATE_DIAMETER_M: 0.45 };
   if (typeof module !== "undefined" && module.exports) module.exports = API; else root.CM = API;
 })(typeof self !== "undefined" ? self : this);

@@ -3,6 +3,7 @@ const CM = require("./engine_src.js");
 const { TH } = require("./data_node.js");
 const fs = 240, n = 480, flight = 0.5, t0 = 1.0, H = 400, scale = H / 1.75;
 const pose = [];
+let seed = 11; const rnd = () => ((seed = seed * 16807 % 2147483647) / 2147483647 - 0.5);   // 固定随机数，结果可复现
 for (let i = 0; i < n; i++) {
   const t = i / fs;
   let lift = 0, crouch = 0;
@@ -12,7 +13,7 @@ for (let i = 0; i < n; i++) {
   const gy = 900, ay = gy - 20 - lift, ky = ay - 110 + crouch * 0.3, hy = ky - 110 + crouch, sy = hy - 170;
   const kx = 500 + crouch * 0.9;
   const f = [...Array(33)].map(() => [500, sy - 60, 0.99]);
-  const set = (j, x, y) => (f[j] = [x + (Math.random() - 0.5) * 2, y + (Math.random() - 0.5) * 2, 0.99]);
+  const set = (j, x, y) => (f[j] = [x + rnd() * 2, y + rnd() * 2, 0.99]);
   for (const [s, off] of [[0, -4], [1, 4]]) {
     set(11 + s, 500 + off, sy); set(13 + s, 520 + off, sy + 90); set(15 + s, 540 + off, sy + 160);
     set(23 + s, 480 + off, hy); set(25 + s, kx + off, ky); set(27 + s, 500 + off, ay);
@@ -23,5 +24,5 @@ for (let i = 0; i < n; i++) {
 const r = CM.analyzeGeneral(pose, fs, TH);
 console.log("跳跃", r.jumps.length, "次；腾空", r.summary.flight_time_s, "s（真值 0.500）；高度", r.summary.jump_height_cm, "cm（真值 30.7）");
 console.log("起跳前最小膝角", r.summary.knee_min_pre_deg, "；落地最小膝角", r.summary.landing_knee_min_deg);
-const ok = r.jumps.length === 1 && Math.abs(r.summary.flight_time_s - 0.5) <= 3 / fs && Math.abs(r.summary.jump_height_cm - 30.7) < 1.5;
+const ok = r.jumps.length === 1 && Math.abs(r.summary.flight_time_s - 0.5) <= 3 / fs && Math.abs(r.summary.jump_height_cm - 30.7) < 1;
 console.log(ok ? "✓ 通过" : "✗ 失败"); process.exit(ok ? 0 : 1);

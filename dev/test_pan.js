@@ -16,8 +16,15 @@ function scene(pan, driftY, fsOut, noise) {
   return out;
 }
 const cases = [["固定机位 240fps", false, 0, 240, 0], ["跟拍 240fps", true, 0, 240, 1.5], ["跟拍+斜向 240fps", true, 60, 240, 2], ["跟拍+斜向 60fps", true, 60, 60, 2], ["跟拍+斜向 30fps", true, 60, 30, 3]];
+let fail = 0;
 for (const [name, pan, drift, fs, noise] of cases) {
   const r = CM.analyzeSprint(scene(pan, drift, fs, noise), fs, TH, null);
-  const s = r.summary;
-  console.log(name.padEnd(16), "方法:", (r.contactMethod === "vertical" ? "最低点静止" : "水平静止").padEnd(6), "触地", s.n_contacts, "次", "触地", s.contact_time_s ?? "—", "s 腾空", s.flight_time_s ?? "—", "s 步频", s.step_frequency_hz ?? "—", "（真值 0.110 / 0.120 / 4.35）");
+  const s = r.summary, U = CM.uncertainty(r);
+  // 判定：触地、腾空在该方法和帧率的误差范围内；步频误差 < 0.2 步/秒；识别到至少 4 次触地
+  const ok = Math.abs(s.contact_time_s - truthCT) <= U.contact_time_s && Math.abs(s.flight_time_s - truthFT) <= U.flight_time_s
+    && Math.abs(s.step_frequency_hz - 4.35) < 0.2 && s.n_contacts >= 4;
+  if (!ok) fail++;
+  console.log(ok ? "✓" : "✗", name.padEnd(16), "方法:", (r.contactMethod === "vertical" ? "最低点静止" : "水平静止").padEnd(6), "触地", s.n_contacts, "次", "触地", s.contact_time_s ?? "—", `±${U.contact_time_s.toFixed(3)}`, "s 腾空", s.flight_time_s ?? "—", "s 步频", s.step_frequency_hz ?? "—", "（真值 0.110 / 0.120 / 4.35）");
 }
+console.log(fail ? `${fail} 项失败 ✗` : "全部通过 ✓");
+process.exit(fail ? 1 : 0);
