@@ -892,9 +892,10 @@
       <div class="lbl ${m0.hit ? "hit" : ""}">${m0.name}${m0.hit ? "　偏离参考值" : ""}</div>
       <div class="sub">${[m1, m2].map(m => `<div class="${m.hit ? "hit" : ""}"><b>${m.v}<small>${m.unit}</small></b><span class="lbl">${m.name}</span></div>`).join("")}</div>`;
     $("resNotes").innerHTML = (R.notes || []).map(n => `<div class="msg">${esc(n)}</div>`).join("");
-    $("metrics").innerHTML = Object.entries(R.summary).filter(([k]) => k !== "side_analyzed").map(([k, v]) => {
+    const U = CM.uncertainty ? CM.uncertainty(R) : {};     // 每个指标的测量误差（帧率、方法、关键点抖动）
+    $("metrics").innerHTML = Object.entries(R.summary).filter(([k]) => k !== "side_analyzed" && k !== "jump_fitted").map(([k, v]) => {
       const [name, unit] = CM.LABELS[k] || [k, ""];
-      return `<div class="${hitMetrics.has(k) ? "hit" : ""}"><dt>${name}</dt><dd>${esc(CM.fmt(v, unit))}<small>${unit}</small></dd></div>`;
+      return `<div class="${hitMetrics.has(k) ? "hit" : ""}"><dt>${name}</dt><dd>${esc(CM.fmt(v, unit))}<small>${unit}${U[k] ? ` ±${esc(CM.fmt(U[k], unit))}` : ""}</small></dd></div>`;
     }).join("") || `<div><dt>没有得到指标</dt><dd>–</dd></div>`;
     $("stepsBox").innerHTML = S.action === "sprint" && R.steps && R.steps.length ? `<h3 class="sec">逐步数据</h3><div class="tablewrap"><table class="steps">
       <tr><th>步</th><th>触地 s</th><th>腾空 s</th><th>步长 m</th><th>着地距离 m</th></tr>
@@ -939,7 +940,10 @@
           ${[["agree", "认同"], ["test", "先做测试"], ["disagree", "不认同"]].map(([k, t]) => `<button data-v="${k}" aria-pressed="${v === k}">${t}</button>`).join("")}
         </div>
       </article>`;
-    }).join("") : `<div class="clear">各项指标都在参考范围内，没有触发问题规则。可以逐帧回看视频，把观察写进教练备注。</div>`;
+    }).join("") : `<div class="clear">${S.hits.borderline && S.hits.borderline.length ? "没有确认的问题。" : "各项指标都在参考范围内，没有触发问题规则。"}可以逐帧回看视频，把观察写进教练备注。</div>`;
+    // 边缘结果：超出阈值的部分小于测量误差（或样本太少），不下结论，只提示复测
+    const bl = S.hits.borderline || [];
+    if (bl.length) $("cards").insertAdjacentHTML("beforeend", `<div class="msg"><b>边缘结果（不下结论，建议复测）</b>${bl.map(h => `<div style="margin-top:6px">${esc(h.title)}：${esc(h.symptom_text)}<br><small>${esc(h.reason)}${h.reason === "在测量误差范围内" ? "；用 240 帧慢动作、三脚架固定机位再拍一次" : ""}</small></div>`).join("")}</div>`);
     $("cards").querySelectorAll(".verdict button").forEach(b => b.onclick = () => {
       const id = b.closest(".dx").dataset.id;
       S.verdicts[id] = S.verdicts[id] === b.dataset.v ? "" : b.dataset.v;
@@ -1099,7 +1103,7 @@
       id: S.savedId || Date.now(), date: S.date || new Date().toISOString(),
       athleteId: S.athleteId, athleteName: S.athleteName, action: S.action, sportId: S.sportId || null, techId: S.techId || null, checks: S.checks || {},
       jumps: (S.result.jumps || []).map(j => Object.assign({}, j)), fileName: S.file ? S.file.name : S.fileName,
-      fpsReal: S.fpsReal, N: S.N, summary: R.summary, steps: R.steps || null, notes: R.notes || [],
+      fpsReal: S.fpsReal, N: S.N, summary: R.summary, contactMethod: R.contactMethod || null, steps: R.steps || null, notes: R.notes || [],
       hits: S.hits.map(h => h.id), verdicts: S.verdicts, coachNote: $("coachNote").value.trim(),
       reviewed: Object.values(S.verdicts).some(Boolean), series: S.savedSeries || packSeries(),
     };
@@ -1119,7 +1123,7 @@
     Object.assign(S, { action: rec.action, sportId: rec.sportId, techId: rec.techId, checks: Object.assign({}, rec.checks || {}), athleteId: rec.athleteId, athleteName: rec.athleteName, fpsReal: rec.fpsReal, N: rec.N,
       savedId: rec.id, date: rec.date, verdicts: Object.assign({}, rec.verdicts), coachNote: rec.coachNote, fileName: rec.fileName, savedSeries: rec.series });
     const series = rec.series || {};
-    S.result = { action: rec.action, summary: rec.summary, steps: rec.steps, notes: rec.notes, events: series.events || {}, series, jumps: rec.jumps || [] };
+    S.result = { action: rec.action, fps: rec.fpsReal, contactMethod: rec.contactMethod || null, summary: rec.summary, steps: rec.steps, notes: rec.notes, events: series.events || {}, series, jumps: rec.jumps || [] };
     if (rec.action === "general" && series.knee) S.N = series.knee.length;
     if (rec.action === "clean" && series.h) S.N = series.h.length;
     S.hits = CM.matchCards(S.result, TH, CARDS);
@@ -1176,9 +1180,20 @@
     return all[0] ? all[0].summary : null;
   }
   async function computeAthlete(a) {
+    // 计划从固定起点往前走（旧版每次从今天重算，永远停在第 1 周）
+    if (!a.planStart) { a.planStart = todayStr(); try { await dbPut("athletes", a); } catch (e) { /* 忽略 */ } }
     const video = await latestVideo(a.id);
     const P = COACH.profile(a, video);
-    return { video, P, I: COACH.insights(a, P, video), PL: COACH.plan(a, P), R: COACH.readiness(a) };
+    // 大脑：汇总这名运动员的视频诊断、实时捕捉、测试和每日状态，做鉴别诊断，得出训练重点
+    let B = null;
+    if (window.BRAIN) {
+      const recs = (await dbAll("analyses")).filter(r => r.athleteId === a.id).map(r => r.action === "live" && window.LIVE ? Object.assign({ drillName: (LIVE.DRILLS.find(d => d.id === r.drill) || {}).name || "" }, r) : r);
+      const O = BRAIN.observationsFromRecords(recs, { CM, TH, CARDS });
+      B = BRAIN.reason(a, O.observations, P, { acwr: COACH.loadRatio(a), excluded: O.excluded });
+    }
+    const addons = window.BRAIN ? Object.fromEntries(Object.entries(BRAIN.CAPS).map(([k, v]) => [k, { name: v.name, addon: v.addon }])) : {};
+    const focus = [...new Set([...(B ? B.focus : P.weakest || []), ...(a.focus || [])])];
+    return { video, P, B, I: COACH.insights(a, P, video), PL: COACH.plan(a, P, new Date(), { focus, addons }), R: COACH.readiness(a) };
   }
   function currentWeekIndex(PL) {
     const t = new Date(todayStr());
@@ -1266,7 +1281,8 @@
     const a = A.cur, { PL, R } = A.C;
     const wi = currentWeekIndex(PL), w = PL.weeks[wi];
     const dow = (new Date().getDay() + 6) % 7;
-    const day = w && new Date(w.start) <= new Date(todayStr()) ? w.days.find(x => x.dow === dow) : null;
+    const day0 = w && new Date(w.start) <= new Date(todayStr()) ? w.days.find(x => x.dow === dow) : null;
+    const day = COACH.adjustDay ? COACH.adjustDay(day0, R) : day0;     // 打卡状态一般 → 降强度；状态差 → 改恢复
     const sess = day ? day.blocks.map(b => `<div class="bk"><b>${esc(b.t)}</b>${b.items.map(i => `<div>${esc(i)}</div>`).join("")}</div>`).join("") : `<div class="bk"><b>今天没有安排训练</b><div>休息或轻松活动</div></div>`;
     const lv = { green: "状态良好", yellow: "注意", red: "需要恢复", none: "今天还没打卡" }[R.level];
     const last = (a.wellness || []).slice(-1)[0] || {};
@@ -1279,8 +1295,11 @@
         <div class="q"><span>疲劳程度（1 很轻松，5 很累）</span>${scale("fatigue", cur.fatigue)}</div>
         <div class="q"><span>肌肉酸痛（1 没有，5 很痛）</span>${scale("soreness", cur.soreness)}</div>
         <div class="inrow"><label>训练 RPE（0–10，训练后填）<input type="number" inputmode="decimal" id="ciRpe" value="${cur.rpe ?? ""}" min="0" max="10"></label><label>训练时长（分钟）<input type="number" inputmode="numeric" id="ciMin" value="${cur.minutes ?? ""}" min="0"></label></div>
+        <div class="inrow"><label>平均心率（可选）<input type="number" inputmode="numeric" id="ciHrAvg" value="${cur.hr && cur.hr.hrAvg ? cur.hr.hrAvg : ""}" min="30" max="230"></label><label>导入手表记录<input type="file" id="ciHrFile" accept=".tcx,.gpx,.csv,.txt,application/xml,text/xml,text/csv"></label></div>
+        <p class="lead" style="font-size:12px;margin:0 0 8px">手表记录：从 Garmin Connect、Strava、HealthFit（Apple Watch）等导出 TCX / GPX / CSV 文件。短跑、力量、跳跃课心率跟不上，以 RPE × 时长为准。</p>
         <button class="btn go" id="ciSave">保存今日状态</button></div>` : ""}
-      <div class="sess"><b style="font-size:15px">${w ? `第 ${wi + 1} 周　${w.phaseName}${w.deload ? "　调整周" : ""}` : ""}</b>${sess}</div>`;
+      ${cur.hr ? `<div class="msg" style="margin-top:8px"><b>心率负荷</b>　${cur.hr.trimp != null ? `TRIMP ${cur.hr.trimp}` : ""}${cur.hr.hrAvg ? `　平均 ${cur.hr.hrAvg}` : ""}${cur.hr.hrPeak ? `　最高 ${cur.hr.hrPeak}` : ""}${cur.hr.zoneMin ? `<br><small>${cur.hr.zoneMin.map((m, i) => `${i + 1} 区 ${m} 分`).join("　")}</small>` : ""}${(cur.hr.notes || []).map(n => `<br><small>${esc(n)}</small>`).join("")}</div>` : ""}
+      <div class="sess"><b style="font-size:15px">${w ? `第 ${wi + 1} 周　${w.phaseName}${w.deload ? "　调整周" : ""}` : ""}</b>${day && day.adjusted ? `<div class="msg" style="margin:6px 0">${day.adjusted === "red" ? "今天状态差，已把计划改为恢复课" : "今天状态一般，高强度内容已降强度"}</div>` : ""}${sess}</div>`;
     $("ciBtn").onclick = () => { A.checkin = !A.checkin; renderAthleteToday(); };
     if (A.checkin) {
       const vals = { fatigue: cur.fatigue, soreness: cur.soreness };
@@ -1288,11 +1307,24 @@
         vals[s.dataset.k] = Number(b.dataset.v);
         s.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
       }));
+      let imported = null;
+      $("ciHrFile").onchange = async ev => {
+        const f = ev.target.files && ev.target.files[0]; if (!f || !window.HRLOAD) return;
+        try { imported = HRLOAD.parseWorkout(f.name, await f.text()); } catch (e) { imported = null; }
+        if (!imported) { toast("没读出心率数据：请导出含心率的 TCX / GPX / CSV"); return; }
+        if (!$("ciMin").value) $("ciMin").value = imported.minutes;
+        toast(`已读取 ${imported.minutes} 分钟、${imported.samples.length} 个心率点`);
+      };
       $("ciSave").onclick = async () => {
         const e = { date: todayStr(), sleep: Number($("ciSleep").value) || 0, fatigue: vals.fatigue, soreness: vals.soreness };
         const rpe = Number($("ciRpe").value), mins = Number($("ciMin").value);
         if ($("ciRpe").value !== "" && rpe >= 0) e.rpe = rpe;
         if (mins > 0) e.minutes = mins;
+        if (window.HRLOAD && (imported || Number($("ciHrAvg").value) > 0)) {
+          const type = day0 && day0.blocks[0] ? day0.blocks[0].t : "";
+          const L = HRLOAD.sessionLoad({ samples: imported ? imported.samples : null, hrAvg: Number($("ciHrAvg").value) || undefined, minutes: e.minutes, rpe: e.rpe, type }, a);
+          e.hr = { trimp: L.trimp, hrAvg: L.hrAvg || Number($("ciHrAvg").value) || undefined, hrPeak: L.hrPeak, zoneMin: L.zoneMin, notes: L.notes, source: imported ? "file" : "manual" };
+        } else if (cur.hr) e.hr = cur.hr;
         a.wellness = (a.wellness || []).filter(x => x.date !== e.date).concat([e]).sort((x, y) => x.date < y.date ? -1 : 1);
         await saveAthlete(); A.checkin = false; toast("已保存今日状态");
         await renderAthlete();
@@ -1345,10 +1377,29 @@
         ${rows.map(r => `<tr><td>${r[0]}</td><td>${fmt3(r[1], r[0])}</td><td class="tg">${fmt3(r[2], r[0])}</td><td>${fmt3(r[3], r[0])}</td></tr>`).join("")}</table>
       <p class="lead" style="margin-top:8px;font-size:13px">目标由短跑单指数速度模型从目标成绩倒推（未计后程减速，实际需求略高）；最高速度来源：${esc(P.cur.vmaxSrc || "暂无")}。${E.name}数据为${E.note}。</p>
       <details class="ins" style="padding:10px 18px"><summary style="font-size:13px;color:var(--muted)">模型与数据来源</summary>${refHtml(["samozino2016", "coh2018"])}</details>
+      ${brainHtml(A.C.B)}
       <h3 class="sec">多学科分析</h3>
       ${I.map(x => `<div class="ins"><div class="ar">${esc(x.area)}</div><h4>${esc(x.title)}</h4><ul>${x.bullets.map(b => `<li>${esc(b)}</li>`).join("")}</ul>
         ${x.refs.length || x.level ? `<details><summary>依据${x.level ? "　" + esc(x.level) : ""}</summary>${refHtml(x.refs)}</details>` : ""}</div>`).join("")}`;
     const gi = $("goInfo"); if (gi) gi.onclick = () => { A.pane = "info"; renderPanes(); };
+    if (typeof bindPrinciples === "function") bindPrinciples($("p-profile"));
+  }
+
+  // 大脑的推理结果：训练重点（推理链、可信度、复测）、还不能确定的、需要补的测试、安全提醒、被教练排除的
+  function brainHtml(B) {
+    if (!B) return "";
+    const conf = { 高: "两个以上来源互相印证", 中: "单一来源，多次出现或差距明显", 低: "证据还少，先复测" };
+    return `<h3 class="sec">诊断推理</h3>
+      ${B.cautions.map(c => `<div class="msg" style="border-color:rgba(231,185,106,.6)"><b style="color:#E7B96A">${c.level === "injury" ? "伤病" : c.level === "load" ? "负荷" : "安全"}</b>　${esc(c.text)}</div>`).join("")}
+      ${B.priorities.length ? B.priorities.slice(0, 5).map((p, i) => `<div class="ins"><div class="ar">训练重点 ${i + 1}${i < 3 ? "　已写进训练计划" : ""}</div>
+        <h4>${esc(p.name)}　<small style="font-weight:400">可信度 ${p.confidence}（${conf[p.confidence]}）</small></h4>
+        <ul>${p.why.slice(0, 4).map(w => `<li>${esc(w)}</li>`).join("")}</ul>
+        <p style="font-size:13px;margin:6px 0 0">练什么：${esc(p.addon)}<br>怎么复测：${esc(p.retest)}</p>
+        ${principleChips(p.principles)}</div>`).join("") : `<p class="lead">还没有足够的数据做判断。</p>`}
+      ${B.undecided.length ? `<div class="ins"><div class="ar">还不能确定</div><ul>${B.undecided.map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
+      ${B.gaps.length ? `<div class="msg">${B.gaps.map(esc).join("<br>")}</div>` : ""}
+      ${B.excluded.length ? `<details class="ins" style="padding:10px 18px"><summary style="font-size:13px;color:var(--muted)">教练排除的结论 ${B.excluded.length} 条</summary><ul>${B.excluded.map(x => `<li>${esc(x.text)}</li>`).join("")}</ul></details>` : ""}
+      <p class="lead" style="font-size:12px">推理方法：每个现象列出几种可能原因，用测试、视频、实时捕捉的数据互相证实或排除；规则权重是经验值，结论需教练确认。教练在视频结果里点“不认同”的问题不会进入推理。</p>`;
   }
 
   // ----- 计划 -----
@@ -1362,6 +1413,7 @@
     $("p-plan").innerHTML = `
       ${G ? `<div class="ins"><div class="ar">${esc(G.name)}</div><h4>训练重点</h4><ul>${G.priorities.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
         <details><summary>项群特点、测试指标与伤病预防</summary><p>${esc(G.traits)}</p><p><b>测试：</b>${G.tests.map(esc).join("；")}</p><p><b>预防：</b>${G.prehab.map(esc).join("；")}</p></details></div>` : ""}
+      ${(PL.notes || []).map(n => `<div class="msg">${esc(n)}</div>`).join("")}
       <h3 class="sec">${PL.total} 周计划</h3>
       <div class="weeks">${PL.weeks.map((x, i) => `<button class="wk ${x.phase} ${x.deload ? "deload" : ""} ${i === now ? "now" : ""}" data-i="${i}" aria-pressed="${i === A.week}">${i + 1}${x.test ? `<span class="t">测</span>` : ""}</button>`).join("")}</div>
       <div class="phases">${PL.phases.map(p => `<span><i style="background:${phaseColor[p.key]}"></i>${p.name} ${p.weeks} 周</span>`).join("")}<span>斜纹 = 调整周　测 = 测试</span></div>
@@ -1369,8 +1421,9 @@
       <p class="lead" style="margin:-4px 0 12px">${esc(PL.phases.find(p => p.key === w.phase).goal)}${w.deload ? "。本周训练量约为平时的 60%，让身体吸收训练效果" : ""}</p>
       ${w.days.map(d => { const date = new Date(w.start); date.setDate(date.getDate() + d.dow); const isToday = date.toISOString().slice(0, 10) === todayStr();
         return `<div class="day ${isToday ? "today-day" : ""}"><div class="dn">${d.day}<small>${date.getMonth() + 1}/${date.getDate()}</small></div><div>${d.blocks.map(b => `<div class="bk"><b>${esc(b.t)}</b>${b.items.map(i => `<div>${esc(i)}</div>`).join("")}</div>`).join("")}</div></div>`; }).join("")}
-      ${PL.focus.length ? `<div class="msg ok" style="margin-top:12px"><b>当前重点：</b>${PL.focus.map(f => ({ speed: "最高速度", accel: "加速", se: "速度耐力", strength: "力量", power: "爆发力", tech: "技术", recovery: "恢复", reactive: "反应力量" }[f] || f)).join("、")}（来自能力画像短板和视频诊断）</div>` : ""}
-      <p class="lead" style="font-size:13px;margin-top:12px">计划按周期化原则从目标日期倒推生成，是模板建议，需要教练审核调整。每个测试周录入新成绩后，画像和计划会自动更新。</p>
+      ${PL.focus.length ? `<div class="msg ok" style="margin-top:12px"><b>当前重点：</b>${PL.focus.map(f => (window.BRAIN && BRAIN.CAPS[f] ? BRAIN.CAPS[f].name : f)).join("、")}（来自“画像”页的诊断推理）</div>` : ""}
+      ${PL.load ? `<p class="lead" style="font-size:13px;margin-top:12px">负荷自检：本周计划负荷约 ${PL.load.weekly[A.week]}（RPE × 分钟，估算）${PL.load.ratio[A.week] != null ? `，是前几周平均的 ${PL.load.ratio[A.week]} 倍` : ""}。全程最大 ${PL.load.max ?? "–"} 倍（建议 ≤ 1.3）${w.ramp ? `；本周是过渡周，量约为课表的 ${Math.round(w.ramp * 100)}%` : ""}。</p>` : ""}
+      <p class="lead" style="font-size:13px;margin-top:12px">计划从 ${esc(PL.start || "")} 开始，按周期化原则排到目标日期，是模板建议，需要教练审核调整。每个测试周录入新成绩后，画像和计划会自动更新。</p>
       <details class="ins" style="padding:10px 18px"><summary style="font-size:13px;color:var(--muted)">依据</summary>${refHtml(PL.refs)}</details>`;
     $("p-plan").querySelectorAll(".wk").forEach(b => b.onclick = () => { A.week = Number(b.dataset.i); renderPlanPane(); });
     const nowEl = $("p-plan").querySelector(".wk.now"); if (nowEl) nowEl.scrollIntoView({ block: "nearest", inline: "center" });
@@ -1388,6 +1441,16 @@
         <div class="row"><label>性别</label><select data-f="sex"><option ${a.sex !== "女" ? "selected" : ""}>男</option><option ${a.sex === "女" ? "selected" : ""}>女</option></select></div>
         <div class="row"><label>身高</label><input class="n" type="number" inputmode="decimal" data-f="height_cm" value="${a.height_cm ?? ""}"><span class="unit">cm</span></div>
         <div class="row"><label>体重</label><input class="n" type="number" inputmode="decimal" data-f="weight_kg" value="${a.weight_kg ?? ""}"><span class="unit">kg</span></div>
+        <div class="row"><label>出生年份</label><input class="n" type="number" inputmode="numeric" data-f="birthYear" placeholder="如 2008" value="${a.birthYear ?? ""}"></div>
+        <div class="row"><label>系统训练年限</label><input class="n" type="number" inputmode="decimal" step="0.5" data-f="trainingYears" value="${a.trainingYears ?? ""}"><span class="unit">年</span></div>
+        <div class="row"><label>实测最大心率</label><input class="n" type="number" inputmode="numeric" data-f="hrMax" placeholder="不填按年龄估算" value="${a.hrMax ?? ""}"><span class="unit">次/分</span></div>
+      </div>
+      <h3 class="sec">伤病</h3>
+      <div class="group">
+        <div class="addtest"><select id="injPart">${Object.entries(window.BRAIN ? BRAIN.INJURY_PARTS : {}).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select>
+          <select id="injStatus"><option value="current">当前</option><option value="history">既往（已恢复）</option></select><input id="injNote" placeholder="说明（可选）"><button class="btn go sm" id="injAdd">添加</button></div>
+        <ul class="tests">${(a.injuries || []).length ? a.injuries.map((x, i) => `<li><span class="tn">${esc((window.BRAIN ? BRAIN.INJURY_PARTS[x.part] : x.part) || x.part)}</span><span class="tv" style="font-size:14px">${x.status === "current" ? "当前" : "既往"}</span><span class="td">${esc(x.note || "")}</span><button class="x" data-inj="${i}" aria-label="删除">×</button></li>`).join("")
+          : `<li style="color:var(--muted);font-size:14px">没有伤病记录。有伤病时请填写，计划会按部位调整（调整内容需队医确认）。</li>`}</ul>
       </div>
       <h3 class="sec">成绩与目标</h3>
       <div class="group form">
@@ -1413,8 +1476,9 @@
       <button class="danger" id="delAthlete">删除这名运动员</button>`;
     const P = $("p-info");
     P.querySelectorAll("[data-f]").forEach(el => el.onchange = async () => {
-      const f = el.dataset.f, num = ["height_cm", "weight_kg", "pb", "goalTime", "sessionsPerWeek"].includes(f);
+      const f = el.dataset.f, num = ["height_cm", "weight_kg", "pb", "goalTime", "sessionsPerWeek", "birthYear", "trainingYears", "hrMax"].includes(f);
       a[f] = num ? (el.value === "" ? undefined : Number(el.value)) : el.value.trim();
+      if (f === "goalDate") a.planStart = todayStr();      // 换了目标：计划从本周重新开始
       if (f === "name" && !a.name) a.name = "未命名";
       await saveAthlete(); A.C = await computeAthlete(a); await renderBoardOnly(); if (f === "sport") { A.pane = "info"; renderPanes(); } toast("已保存");
     });
@@ -1428,6 +1492,13 @@
       a.tests = (a.tests || []).concat([{ id: "t" + Date.now(), type: $("tType").value, value: v, date: $("tDate").value || todayStr() }]);
       await saveAthlete(); toast("已添加，画像和计划已更新"); A.C = await computeAthlete(a); renderInfoPane(); renderBoardOnly();
     };
+    $("injAdd").onclick = async () => {
+      a.injuries = (a.injuries || []).concat([{ part: $("injPart").value, status: $("injStatus").value, note: $("injNote").value.trim(), date: todayStr() }]);
+      await saveAthlete(); A.C = await computeAthlete(a); toast("已添加，计划已按伤病调整"); renderInfoPane();
+    };
+    P.querySelectorAll("[data-inj]").forEach(b => b.onclick = async () => {
+      a.injuries = (a.injuries || []).filter((_, i) => i !== Number(b.dataset.inj)); await saveAthlete(); A.C = await computeAthlete(a); renderInfoPane();
+    });
     P.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
       a.tests = (a.tests || []).filter(t => t.id !== b.dataset.del); await saveAthlete(); renderInfoPane();
     });
@@ -1805,6 +1876,16 @@
       }).join("")).join("");
       box.querySelectorAll("button[data-sport]").forEach(b => b.onclick = () => openSport(b.dataset.sport));
       box.querySelectorAll("button[data-drill]").forEach(b => b.onclick = () => openLive(b.dataset.drill));
+    } else if (kbTab === "brain" && window.BRAIN) {
+      // 大脑的推理规则全部公开：现象 → 可能原因（先验比例）→ 用什么证据区分 → 原理
+      const discText = d => typeof d.text === "function" ? "（根据测试数据）" : d.text;
+      box.innerHTML = `<p class="lead" style="margin-top:14px">大脑像医生看病一样做“鉴别诊断”：一个现象列出几种可能原因，再用测试、视频和实时捕捉的数据证实或排除。下面是全部规则；比例是经验先验，需教练校准。教练“不认同”的结论不会进入推理。</p>` +
+        Object.entries(BRAIN.RULES).map(([id, R]) => `<details class="kb-p"><summary><b>${esc(R.label)}</b><span>${esc(id)}　可能原因：${R.causes.map(c => `${esc(BRAIN.CAPS[c.cap].name)} ${Math.round(c.w * 100)}%`).join("　")}</span></summary>
+          <h4>可能原因</h4><ul>${R.causes.map(c => `<li>${esc(BRAIN.CAPS[c.cap].name)}：${esc(c.why)}</li>`).join("")}</ul>
+          ${(R.disc || []).length ? `<h4>用什么证据区分</h4><ul>${R.disc.map(d => `<li>${esc(BRAIN.CAPS[d.cap].name)} × ${d.factor}：${esc(discText(d))}</li>`).join("")}</ul>` : ""}
+          ${R.safety ? `<h4>安全</h4><p class="limits">${esc(R.safety)}</p>` : ""}
+          ${principleChips(R.principles)}</details>`).join("");
+      bindPrinciples(box);
     } else if (kbTab === "measure") {
       const M = KB.MEASURES;
       box.innerHTML = `<p class="lead" style="margin-top:14px">同一个指标，用不同方法测，可靠程度不同。✓ 可靠　～ 有条件　✗ 不可靠</p>
