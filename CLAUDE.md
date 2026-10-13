@@ -4,7 +4,7 @@ AI 运动科学教练系统。第一阶段是手机 Web App（GitHub Pages + iPh
 开发者：张书铭（Shuming），运动训练专业。用户界面全部用中文；回复用户也用中文。用户用 iPhone 16 Pro 测试，没有 Mac。
 
 线上地址：https://shumingzhang325-gif.github.io/coachmind/
-当前版本：v2.1（Service Worker 缓存名 coachmind-v20，每次发布都要加 1）
+当前版本：v2.1（Service Worker 缓存名 coachmind-v21，每次发布都要加 1）
 
 ## 文件
 - index.html：全部界面与样式（CSS 在 <style> 里，后面的规则覆盖前面的：依次是基础、皇家黑金、杂志封面风格）
@@ -58,6 +58,10 @@ AI 运动科学教练系统。第一阶段是手机 Web App（GitHub Pages + iPh
 - node test_brain.js（大脑：鉴别诊断方向、证据加权、教练意见优先、来源独立性、规则完整）
 - node test_plan.js（计划：周期按日期推进、352 种组合负荷自检、重点进入所有项目、年龄/训练年限/伤病/当天状态）
 - node test_hrload.js（心率：区间、TRIMP、TCX/GPX/CSV、各种不可信情况的提示）
+- node test_fps.js（帧率框默认按文件真实帧率；30 帧视频触地/腾空正确；改成 240 需确认）
+- node test_gap.js（关键点缺口超过 0.1 秒不补线、不识别触地/腾空，报告标出）
+- node test_load.js（负荷比值：21–27 天记录按实际天数折算，不虚高）
+- node test_sw.js（离线包单独缓存，不进 CORE 的 addAll；新版本保留离线包）
 - 浏览器端：真实 MediaPipe 运行时在这个仓库的文件里，能联网时用 Playwright + Chromium 做端到端测试（注意用真实运行时，替身测不出 Emscripten 相关问题）。
 - 实时捕捉端到端：Chromium 加 --use-fake-device-for-media-stream --use-file-for-fake-video-capture=视频.y4m（ffmpeg 转 y4m）当摄像头。云端容器没有 GPU，只有 1–2 帧/秒，真机速度要在 iPhone 上看。Chromium 不支持 H.264，视频类测试用 VP9 副本。
 

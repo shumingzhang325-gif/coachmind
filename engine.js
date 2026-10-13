@@ -407,7 +407,8 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
   function percentile(a, p) { const v = a.filter(isF).sort((x, y) => x - y); if (!v.length) return NaN; const k = (v.length - 1) * p / 100, f = Math.floor(k), c = Math.min(f + 1, v.length - 1); return v[f] + (v[c] - v[f]) * (k - f); }
   function mean(a) { const v = a.filter(isF); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : NaN; }
 
-  function fillNaN(x) {
+  // maxGap（帧数）可选：缺口超过 maxGap 帧时不补线，保持 NaN
+  function fillNaN(x, maxGap) {
     const y = Array.from(x), n = y.length, good = [];
     for (let i = 0; i < n; i++) if (isF(y[i])) good.push(i);
     if (good.length < 2) return y;
@@ -418,6 +419,7 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
       if (i > good[good.length - 1]) { y[i] = x[good[good.length - 1]]; continue; }
       while (good[g + 1] < i) g++;
       const a = good[g], b = good[g + 1];
+      if (maxGap != null && b - a - 1 > maxGap) continue;
       y[i] = x[a] + (x[b] - x[a]) * (i - a) / (b - a);
     }
     return y;
@@ -485,6 +487,40 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     return merged.filter(s => s[1] - s[0] + 1 >= minLen);
   }
 
+  // 关键点长缺口：连续缺失超过 maxS 秒（默认 0.1 s）的帧。滤波仍会补线，但这些帧不参与触地/腾空识别
+  const GAP_MAX_S = 0.1;
+  const VIS_MIN = 0.5;
+  // 关键点“看得见”：坐标有效，且可见度不低于 0.5（没有可见度字段时只看坐标）
+  const seen = (f, j) => !!(f && f[j] && isF(f[j][0]) && isF(f[j][1]) && !(f[j][2] < VIS_MIN));
+  const seenSeries = (pose, js) => pose.map(f => js.some(j => seen(f, j)) ? 0 : NaN);
+  function longGaps(series, fs, maxS) {
+    const n = series.length, out = new Array(n).fill(false), lim = Math.max(1, Math.round((maxS || GAP_MAX_S) * fs));
+    let st = -1;
+    for (let i = 0; i <= n; i++) {
+      const miss = i < n && !isF(series[i]);
+      if (miss && st < 0) st = i;
+      else if (!miss && st >= 0) { if (i - st > lim) for (let k = st; k < i; k++) out[k] = true; st = -1; }
+    }
+    return out;
+  }
+  // 段 [a,b] 是否碰到缺口（含前后各一帧，边界不可信）
+  const touchesGap = (gap, a, b) => { for (let k = Math.max(0, a - 1); k <= Math.min(gap.length - 1, b + 1); k++) if (gap[k]) return true; return false; };
+  function gapRanges(gap) {
+    const r = []; let st = -1;
+    for (let i = 0; i <= gap.length; i++) { const g = i < gap.length && gap[i]; if (g && st < 0) st = i; else if (!g && st >= 0) { r.push([st, i - 1]); st = -1; } }
+    return r;
+  }
+  function gapNote(ranges, fs, what) {
+    if (!ranges.length) return null;
+    const t = ranges.map(([a, b]) => `${(a / fs).toFixed(2)}–${((b + 1) / fs).toFixed(2)} 秒`).join("、");
+    return `关键点丢失超过 ${GAP_MAX_S} 秒的片段：${t}。这些片段没有补线，不参与${what}识别。`;
+  }
+
+  // 帧率框默认值：用视频文件的真实帧率；测不出时按普通视频 30，并提示慢动作原片改成 240。
+  function defaultFps(fileFps, unknown) { return unknown || !isF(fileFps) || fileFps <= 0 ? 30 : Math.round(fileFps); }
+  // 文件不到 100 帧、却要按明显更高的帧率（如 240 慢动作）计算时，需要用户确认一次
+  function needsSlowmoConfirm(fileFps, entered) { return isF(fileFps) && fileFps > 0 && fileFps < 100 && entered >= fileFps * 1.5; }
+
   // ---------- 姿态索引 ----------
   const SIDES = {
     left: { shoulder: 11, elbow: 13, wrist: 15, hip: 23, knee: 25, ankle: 27, heel: 29, foot: 31 },
@@ -550,13 +586,14 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
       const groundY = percentile(ty, 95);
       const legLen = median(pose.map(f => f ? Math.hypot(f[S.hip][0] - f[S.ankle][0], f[S.hip][1] - f[S.ankle][1]) : NaN));
       const nearY = groundY - c.ground_band_leg_ratio * legLen, slowV = c.stance_speed_ratio * base.runSpeed;
-      const mask = ty.map((y, i) => y > nearY && vx[i] < slowV);
-      debug[side] = { ty, vx, groundY, nearY, slowV };
+      const fgap = longGaps(seenSeries(pose, [S.foot]), fs);
+      const mask = ty.map((y, i) => !fgap[i] && y > nearY && vx[i] < slowV);
+      debug[side] = { ty, vx, groundY, nearY, slowV, gap: fgap };
       const minLen = Math.max(2, Math.round(c.min_contact_s * fs)), gap = Math.round(c.merge_gap_s * fs), pad = Math.round(0.03 * fs);
       for (const seg of segments(mask, minLen, gap)) {
-        if (seg[0] === 0 || seg[1] === n - 1) continue;
+        if (seg[0] === 0 || seg[1] === n - 1 || touchesGap(fgap, seg[0], seg[1])) continue;
         const [td, to] = refine(tx, ty, seg, c.refine_tol_x_leg_ratio * legLen, c.refine_tol_y_leg_ratio * legLen, pad);
-        if (to - td + 1 >= minLen && td > 0 && to < n - 1) contacts.push({ side, td, to });
+        if (to - td + 1 >= minLen && td > 0 && to < n - 1 && !touchesGap(fgap, td, to)) contacts.push({ side, td, to });
       }
     }
     contacts.sort((a, b) => a.td - b.td);
@@ -579,10 +616,11 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
       if (!isF(legLen) || legLen <= 0) continue;
       const g = y.map((_, i) => { let m = -Infinity; for (let k = Math.max(0, i - win); k <= Math.min(n - 1, i + win); k++) if (isF(y[k]) && y[k] > m) m = y[k]; return m; });
       const band = 0.07 * legLen, vmax = 1.6 * legLen;               // 离局部地面 7% 腿长以内、竖直速度小于 1.6 腿长/秒
-      const mask = y.map((v, i) => isF(v) && v > g[i] - band && vy[i] < vmax);
+      const gap = longGaps(seenSeries(pose, [S.heel, S.foot, S.ankle]), fs);
+      const mask = y.map((v, i) => !gap[i] && isF(v) && v > g[i] - band && vy[i] < vmax);
       const minLen = Math.max(2, Math.round(0.05 * fs));
       for (const [td, to] of segments(mask, minLen, Math.round(0.02 * fs))) {
-        if (td === 0 || to === n - 1) continue;
+        if (td === 0 || to === n - 1 || touchesGap(gap, td, to)) continue;
         const dur = (to - td + 1) / fs;
         if (dur > 0.45) continue;                                      // 太长：站立、起跑器预备姿势，不算跑步触地
         contacts.push({ side, td, to });
@@ -672,6 +710,10 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     if (useV) r.notes.unshift("检测到镜头在移动或人斜向跑动，已改用“最低点静止”方法识别触地；步长和着地距离在跟拍镜头下不可靠，已隐藏。");
     if (useV) { for (const k of ["step_length_m", "speed_mps", "touchdown_distance_m", "hip_speed_mps"]) delete r.summary[k]; r.steps.forEach(s => { delete s.step_length_m; delete s.speed_mps; delete s.touchdown_distance_m; }); }
     r.debug = det.debug; r.legSwaps = fixed.swaps; r.pose = fixed.pose;
+    const anyGap = longGaps(fixed.pose.map(f => (seen(f, SIDES.left.foot) && seen(f, SIDES.right.foot)) ? 0 : NaN), fs);
+    r.gaps = gapRanges(anyGap);
+    const gn = gapNote(r.gaps, fs, "触地");
+    if (gn) r.notes.unshift(gn);
     const cd = cadenceFromLegSwing(fixed.pose, fs, TH.sprint);
     if (cd) { r.summary.cadence_swing_hz = cd.hz; r.summary.cadence_spm = Math.round(cd.hz * 60); r.cadenceFrames = cd.frames; }
     if (r.steps.length < 2 && cd) r.notes.unshift(`脚的落点看不清，已改用摆腿周期测出步频 ${cd.hz.toFixed(2)} 步/秒（${Math.round(cd.hz * 60)} 步/分钟）。`);
@@ -702,19 +744,20 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     }
     // 最低的脚（图像 y 最大）
     const footIdx = [27, 28, 29, 30, 31, 32];
-    const lowRaw = P.map(f => f ? Math.max(...footIdx.map(j => f[j][1]).filter(isF)) : NaN);
+    const lowRaw = P.map(f => { if (!f) return NaN; const v = footIdx.map(j => f[j][1]).filter(isF); return v.length ? Math.max(...v) : NaN; });
+    const gap = longGaps(seenSeries(P, footIdx), fs);
     const low = lowpass(lowRaw, fs, c.foot_filter_hz);
     const bodyH = median(P.map(f => f ? Math.max(...footIdx.map(j => f[j][1]).filter(isF)) - f[0][1] : NaN));
     const ground = percentile(low, c.ground_percentile);
     const band = c.air_band_body_ratio * bodyH;
-    const air = low.map(y => isF(y) && y < ground - band);
+    const air = low.map((y, i) => !gap[i] && isF(y) && y < ground - band);
     const minAir = Math.max(2, Math.round(c.min_flight_s * fs));
     const jumps = [];
     const fine = c.touch_band_body_ratio * bodyH;                      // 精修：脚离开地面几像素即算离地
     for (let [s0, s1] of segments(air, minAir, Math.round(0.01 * fs))) {
-      while (s0 > 0 && isF(low[s0 - 1]) && low[s0 - 1] < ground - fine) s0--;
-      while (s1 < n - 1 && isF(low[s1 + 1]) && low[s1 + 1] < ground - fine) s1++;
-      if (s0 === 0 || s1 === n - 1) continue;                        // 起跳或落地被截断
+      while (s0 > 0 && !gap[s0 - 1] && isF(low[s0 - 1]) && low[s0 - 1] < ground - fine) s0--;
+      while (s1 < n - 1 && !gap[s1 + 1] && isF(low[s1 + 1]) && low[s1 + 1] < ground - fine) s1++;
+      if (s0 === 0 || s1 === n - 1 || touchesGap(gap, s0, s1)) continue;   // 起跳或落地被截断，或碰到关键点缺口
       // 腾空时间：空中只受重力，脚的轨迹是抛物线。拟合明显离地的点（未滤波），求与地面的两个交点。
       // 比“离地阈值线”准：不受阈值高度和帧率影响（30 fps 时阈值法最多偏低约 4 cm）；拟合不可靠时退回阈值法
       let t = (s1 - s0 + 1) / fs, fitted = false;
@@ -735,10 +778,11 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
     if (best) Object.assign(summary, { jump_height_cm: best.height_cm, flight_time_s: best.flight_s, jump_fitted: best.fitted, knee_min_pre_deg: best.knee_min_pre_deg,
       knee_takeoff_deg: best.knee_takeoff_deg, landing_knee_min_deg: best.knee_landing_min_deg, arm_peak_deg: best.arm_peak_deg });
     Object.assign(summary, { n_jumps: jumps.length, knee_min_deg: fmin(knee), hip_min_deg: fmin(hip), elbow_min_deg: fmin(elbow), trunk_lean_max_deg: fmax(trunk), side_analyzed: side === "left" ? "左" : "右" });
-    const notes = [];
+    const notes = [], gaps = gapRanges(gap), gn = gapNote(gaps, fs, "腾空");
+    if (gn) notes.push(gn);
     if (!jumps.length) notes.push("没有检测到腾空。如果动作里有起跳，请确认机位固定、双脚在画面内。");
     if (jumps.length) notes.push("跳跃高度按腾空时间计算（g·t²/8），要求起跳和落地时身体姿势相近；落地时屈膝更多会让结果偏高。");
-    return { action: "general", fps: fs, summary, notes, jumps, legSwaps: fixed.swaps, pose: P,
+    return { action: "general", fps: fs, summary, notes, jumps, gaps, legSwaps: fixed.swaps, pose: P,
       series: { knee, hip, elbow, shoulder, trunk, air } };
   }
 
@@ -938,7 +982,7 @@ if (typeof module !== 'undefined') { module.exports_data = { CM_THRESHOLDS, CM_C
   function r1(v) { return Math.round(v * 10) / 10; } function r2(v) { return Math.round(v * 100) / 100; }
   function r3(v) { return Math.round(v * 1000) / 1000; } function r4(v) { return Math.round(v * 10000) / 10000; }
 
-  const API = { median, percentile, lowpass, derivative, angle, segments, fillNaN, SIDES, SKELETON,
+  const API = { median, percentile, lowpass, derivative, angle, segments, fillNaN, longGaps, defaultFps, needsSlowmoConfirm, SIDES, SKELETON,
     analyzeSprint, analyzeGeneral, cadenceFromLegSwing, detectContactsVertical, sprintFromContacts, sprintBase, unswapLegs, analyzeClean, PlateTracker, matchCards, uncertainty, parabolaRoots, LABELS, fmt, PLATE_DIAMETER_M: 0.45 };
   if (typeof module !== "undefined" && module.exports) module.exports = API; else root.CM = API;
 })(typeof self !== "undefined" ? self : this);
