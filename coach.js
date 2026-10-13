@@ -22,9 +22,14 @@
     jager2017: { t: "Jäger R, et al. ISSN position stand: protein and exercise. J Int Soc Sports Nutr. 2017;14:20.", doi: "10.1186/s12970-017-0177-8" },
     kreider2017: { t: "Kreider RB, et al. ISSN position stand: safety and efficacy of creatine supplementation in exercise, sport, and medicine. J Int Soc Sports Nutr. 2017;14:18.", doi: "10.1186/s12970-017-0173-z" },
     mah2011: { t: "Mah CD, et al. The effects of sleep extension on the athletic performance of collegiate basketball players. Sleep. 2011;34(7):943-50.", doi: "10.5665/SLEEP.1132" },
-    bosquet2007: { t: "Bosquet L, et al. Effects of tapering on performance: a meta-analysis. Med Sci Sports Exerc. 2007;39(8):1358-65.", doi: null },
-    mujika2003: { t: "Mujika I, Padilla S. Scientific bases for precompetition tapering strategies. Med Sci Sports Exerc. 2003;35(7):1182-7.", doi: null },
-    hopkins2009: { t: "Hopkins WG, et al. Progressive statistics for studies in sports medicine and exercise science. Med Sci Sports Exerc. 2009;41(1):3-13.", doi: null },
+    bosquet2007: { t: "Bosquet L, et al. Effects of tapering on performance: a meta-analysis. Med Sci Sports Exerc. 2007;39(8):1358-65.", doi: "10.1249/mss.0b013e31806010e0", pmid: "17762369" },
+    mujika2003: { t: "Mujika I, Padilla S. Scientific bases for precompetition tapering strategies. Med Sci Sports Exerc. 2003;35(7):1182-7.", doi: "10.1249/01.MSS.0000074448.73931.11", pmid: "12840640" },
+    hopkins2009: { t: "Hopkins WG, et al. Progressive statistics for studies in sports medicine and exercise science. Med Sci Sports Exerc. 2009;41(1):3-13.", doi: "10.1249/MSS.0b013e31818cb278", pmid: "19092709" },
+    hewett1996: { t: "Hewett TE, et al. Am J Sports Med. 1996;24(6):765-73.", doi: "10.1177/036354659602400611", pmid: "8947398" },
+    hewett1999: { t: "Hewett TE, et al. Am J Sports Med. 1999;27(6):699-706.", doi: "10.1177/03635465990270060301", pmid: "10569353" },
+    heiderscheit2011: { t: "Heiderscheit BC, et al. Med Sci Sports Exerc. 2011;43(2):296-302.", doi: "10.1249/MSS.0b013e3181ebedf4", pmid: "20581720" },
+    ramirezcampillo2018: { t: "Ramirez-Campillo R, et al. Front Physiol. 2018;9:934.", doi: "10.3389/fphys.2018.00934", pmid: "30065665" },
+    ramirezcampillo2020: { t: "Ramirez-Campillo R, et al. J Sports Sci Med. 2020;19(3):489-99.", doi: null, pmid: "32874101" },
     suchomel2015: { t: "Suchomel TJ, et al. Weightlifting pulling derivatives: rationale for implementation and application. Sports Med. 2015;45(6):823-39.", doi: "10.1007/s40279-015-0314-y" },
   };
 
