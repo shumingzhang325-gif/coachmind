@@ -232,7 +232,7 @@
     S.W = Math.round(S.vw * k); S.H = Math.round(S.vh * k);
     S.start = 0; S.end = S.duration;
     const hi = d.fps >= 100;
-    $("fpsReal").value = hi ? Math.round(d.fps) : 240;
+    $("fpsReal").value = CM.defaultFps(d.fps, d.unknown); S.slowmoOk = false;   // 默认按文件真实帧率；改成 240 时在下一步确认一次
     $("fileInfo").innerHTML = `<div class="filecard">
         <span class="nm">${esc(file.name)}</span>
         <span class="sp">${S.vw}×${S.vh}　${S.duration.toFixed(2)} 秒　${d.method}</span>
@@ -241,7 +241,7 @@
       </div>` +
       (d.unknown ? `<div class="msg"><b>没能测出帧率，</b>下面先按 240 计算。请确认这是慢动作原片。</div>` :
        hi ? `<div class="msg ok"><b>高帧率原片，</b>可以直接分析。</div>`
-          : `<div class="msg"><b>只有 ${Math.round(d.fps)} 帧/秒。</b>如果这是 iPhone 慢动作被导出成了慢放视频，保持下面的 240；如果本来就是普通速度拍的，改成 ${Math.round(d.fps)}，但触地时间会不准。</div>`);
+          : `<div class="msg"><b>只有 ${Math.round(d.fps)} 帧/秒。</b>如果这是 iPhone 慢动作被导出成了慢放视频，把下面改成 240；如果本来就是普通速度拍的，保持 ${Math.round(d.fps)}（触地时间这类毫秒级指标会不准，步频仍可参考）。</div>`);
     $("fpsBox").hidden = false;
   };
 
@@ -250,6 +250,10 @@
     if (sel === "__new") { toast("请先添加运动员"); return; }
     const fps = Number($("fpsReal").value);
     if (!(fps >= 24)) { toast("请填写帧率"); return; }
+    if (!S.slowmoOk && CM.needsSlowmoConfirm(S.fpsFile, fps)) {
+      if (!confirm(`这个视频文件只有 ${Math.round(S.fpsFile)} 帧/秒，你填的是 ${fps}。\n只有 iPhone 慢动作导出的慢放视频才这样填；普通速度拍的视频按 ${fps} 算，触地和腾空时间会变成真实值的几分之一。\n确定按 ${fps} 帧计算吗？`)) return;
+      S.slowmoOk = true;
+    }
     S.fpsReal = fps; S.athleteId = sel; S.athleteName = $("athleteSel").selectedOptions[0].textContent;
     localStorage.setItem("cm_lastAthlete", sel);
     S.markerDist = Number($("markerDist").value) || null;
@@ -1992,6 +1996,40 @@
 
   // ---------------- 启动 ----------------
   if (!window.CM_PREVIEW && "serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+  // 离线包：首次联网打开后，在后台把模型和运算库逐个存进单独的缓存（与 sw.js 的 OFFLINE 同名）。
+  // 每个文件独立下载、校验，一个失败不影响其他；没下完的下次打开再试。只存 App 实际加载的文件（目前是 SIMD 版运算库）。
+  async function cacheOfflinePack() {
+    if (window.CM_PREVIEW || !("caches" in window) || location.protocol !== "https:") return;
+    const files = [
+      ["pose_landmarker_full.task", b => safeZipCheck(b.buffer).ok],
+      ["vision_wasm_internal.wasm", b => b[0] === 0 && b[1] === 0x61 && b[2] === 0x73 && b[3] === 0x6d],
+      ["vision_wasm_internal.js", b => b.length > 50000],
+      ["vision_bundle.mjs", b => b.length > 50000],
+      ["mp4box.all.min.js", b => b.length > 50000],
+    ];
+    try {
+      const cache = await caches.open("coachmind-offline-v1");
+      const todo = [];
+      for (const [f, ok] of files) { const u = new URL(f, location.href).href; if (!(await cache.match(u))) todo.push([u, ok]); }
+      if (!todo.length) return;
+      if (navigator.onLine === false) return;
+      toast("正在下载离线包，约 19 MB", 3000);
+      const res = await Promise.all(todo.map(async ([u, ok]) => {
+        try {
+          const r = await fetch(u, { cache: "no-cache" });
+          if (!r.ok) return false;
+          const buf = await r.clone().arrayBuffer();
+          if (!ok(new Uint8Array(buf))) return false;
+          await cache.put(u, r);
+          return true;
+        } catch (e) { return false; }
+      }));
+      if (res.every(Boolean)) toast("离线包已就绪，没网也能分析");
+      else toast(`离线包还差 ${res.filter(x => !x).length} 个文件，下次打开时会继续下载`, 3000);
+    } catch (e) { /* 存储空间不足等：只影响离线分析，下次再试 */ }
+  }
+  if (document.readyState === "complete") setTimeout(cacheOfflinePack, 3000);
+  else window.addEventListener("load", () => setTimeout(cacheOfflinePack, 3000));
   $("bar").hidden = true;
   renderHome(); renderPeople(); renderSports(); renderModelState();
 })();

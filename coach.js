@@ -226,7 +226,8 @@
     const now = Date.now(), L = d => (a.wellness || []).filter(w => w.rpe && w.minutes && now - new Date(w.date).getTime() < d * 864e5).reduce((s, w) => s + w.rpe * w.minutes, 0);
     const dates = (a.wellness || []).filter(w => w.rpe && w.minutes).map(w => new Date(w.date).getTime());
     if (!dates.length || now - Math.min(...dates) < 21 * 864e5) return null;      // 不足 3 周历史，不计算
-    const acute = L(7), chronic = L(28) / 4;
+    const span = Math.min(28, (now - Math.min(...dates)) / 864e5);               // 实际有记录的天数（21–28 天）
+    const acute = L(7), chronic = L(28) / (span / 7);                             // 长期负荷 = 周平均，按实际天数折算
     return chronic > 0 ? acute / chronic : null;
   }
   function readiness(a) {

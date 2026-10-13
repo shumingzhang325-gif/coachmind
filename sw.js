@@ -1,9 +1,12 @@
 /* 离线缓存：首次联网打开后，App、姿态模型和运算库都存在手机里，训练场没网也能用 */
-const CACHE = "coachmind-v20";
+const CACHE = "coachmind-v21";
+// 离线包（模型和运算库，约 19 MB）单独放一个缓存：不进 CORE 的 addAll（弱网下一个大文件失败会让整个安装失败），
+// 由 app.js 在首次打开后后台逐个下载；发版换 CACHE 名时也不删，免得每次重下 19 MB
+const OFFLINE = "coachmind-offline-v1";
 const CORE = ["./", "index.html", "app.js", "engine.js", "coach.js", "sports.js", "knowledge.js", "live.js", "brain.js", "hrload.js", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => {
-  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== OFFLINE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener("fetch", e => {
   const req = e.request;
