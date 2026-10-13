@@ -239,7 +239,7 @@
         <span class="fps ${hi ? "good" : "low"}">${Math.round(d.fps)}<small>帧/秒</small></span>
         <label class="btn sm re" for="fileInput">换一个视频</label>
       </div>` +
-      (d.unknown ? `<div class="msg"><b>没能测出帧率，</b>下面先按 240 计算。请确认这是慢动作原片。</div>` :
+      (d.unknown ? `<div class="msg"><b>没测出帧率，慢动作原片请改成 240。</b>下面先按普通视频 30 帧计算。</div>` :
        hi ? `<div class="msg ok"><b>高帧率原片，</b>可以直接分析。</div>`
           : `<div class="msg"><b>只有 ${Math.round(d.fps)} 帧/秒。</b>如果这是 iPhone 慢动作被导出成了慢放视频，把下面改成 240；如果本来就是普通速度拍的，保持 ${Math.round(d.fps)}（触地时间这类毫秒级指标会不准，步频仍可参考）。</div>`);
     $("fpsBox").hidden = false;

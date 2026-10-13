@@ -18,6 +18,11 @@ chk(inGap.length === 0, `缺口 ${a}–${b - 1} 帧内没有识别出触地（�
 chk(r.gaps && r.gaps.length === 1 && r.gaps[0][0] === a && r.gaps[0][1] === b - 1, "报告记录了缺口范围");
 chk(r.notes.some(t => t.includes("关键点丢失")), "报告提示：" + (r.notes.find(t => t.includes("关键点丢失")) || "无"));
 chk(Math.abs(r.summary.contact_time_s - 0.11) < 0.02, `其余触地时间仍准确：${r.summary.contact_time_s} s（真值 0.110）`);
+// 坐标还在、但可见度只有 0.1（MediaPipe 在“猜”被挡住的脚）：同样当作缺失
+const PV = P0.map((f, i) => i >= a && i < b ? f.map((p, j) => j >= 25 ? [p[0], p[1], 0.1] : p) : f);
+const rv = CM.analyzeSprint(PV, fs, TH, null);
+chk(!rv.steps.some(s => s.toeoff_frame >= a - 1 && s.touchdown_frame <= b) && rv.gaps.length === 1 && rv.gaps[0][0] === a && rv.gaps[0][1] === b - 1 && rv.notes.some(t => t.includes("关键点丢失")),
+  `可见度 0.1 的片段：不识别触地（${rv.summary.n_contacts} 次），并在报告里标出`);
 // 跳跃：腾空中段脚丢失 → 不能把补线当成腾空算高度
 const pose = [];
 for (let i = 0; i < 480; i++) {

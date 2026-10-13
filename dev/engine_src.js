@@ -91,6 +91,10 @@
 
   // 关键点长缺口：连续缺失超过 maxS 秒（默认 0.1 s）的帧。滤波仍会补线，但这些帧不参与触地/腾空识别
   const GAP_MAX_S = 0.1;
+  const VIS_MIN = 0.5;
+  // 关键点“看得见”：坐标有效，且可见度不低于 0.5（没有可见度字段时只看坐标）
+  const seen = (f, j) => !!(f && f[j] && isF(f[j][0]) && isF(f[j][1]) && !(f[j][2] < VIS_MIN));
+  const seenSeries = (pose, js) => pose.map(f => js.some(j => seen(f, j)) ? 0 : NaN);
   function longGaps(series, fs, maxS) {
     const n = series.length, out = new Array(n).fill(false), lim = Math.max(1, Math.round((maxS || GAP_MAX_S) * fs));
     let st = -1;
@@ -114,8 +118,8 @@
     return `关键点丢失超过 ${GAP_MAX_S} 秒的片段：${t}。这些片段没有补线，不参与${what}识别。`;
   }
 
-  // 帧率框默认值：用视频文件的真实帧率；只有测不出时才先按 240（慢动作原片）。
-  function defaultFps(fileFps, unknown) { return unknown || !isF(fileFps) || fileFps <= 0 ? 240 : Math.round(fileFps); }
+  // 帧率框默认值：用视频文件的真实帧率；测不出时按普通视频 30，并提示慢动作原片改成 240。
+  function defaultFps(fileFps, unknown) { return unknown || !isF(fileFps) || fileFps <= 0 ? 30 : Math.round(fileFps); }
   // 文件不到 100 帧、却要按明显更高的帧率（如 240 慢动作）计算时，需要用户确认一次
   function needsSlowmoConfirm(fileFps, entered) { return isF(fileFps) && fileFps > 0 && fileFps < 100 && entered >= fileFps * 1.5; }
 
@@ -184,7 +188,7 @@
       const groundY = percentile(ty, 95);
       const legLen = median(pose.map(f => f ? Math.hypot(f[S.hip][0] - f[S.ankle][0], f[S.hip][1] - f[S.ankle][1]) : NaN));
       const nearY = groundY - c.ground_band_leg_ratio * legLen, slowV = c.stance_speed_ratio * base.runSpeed;
-      const fgap = longGaps(col(pose, S.foot, 1), fs);
+      const fgap = longGaps(seenSeries(pose, [S.foot]), fs);
       const mask = ty.map((y, i) => !fgap[i] && y > nearY && vx[i] < slowV);
       debug[side] = { ty, vx, groundY, nearY, slowV, gap: fgap };
       const minLen = Math.max(2, Math.round(c.min_contact_s * fs)), gap = Math.round(c.merge_gap_s * fs), pad = Math.round(0.03 * fs);
@@ -214,7 +218,7 @@
       if (!isF(legLen) || legLen <= 0) continue;
       const g = y.map((_, i) => { let m = -Infinity; for (let k = Math.max(0, i - win); k <= Math.min(n - 1, i + win); k++) if (isF(y[k]) && y[k] > m) m = y[k]; return m; });
       const band = 0.07 * legLen, vmax = 1.6 * legLen;               // 离局部地面 7% 腿长以内、竖直速度小于 1.6 腿长/秒
-      const gap = longGaps(lowY, fs);
+      const gap = longGaps(seenSeries(pose, [S.heel, S.foot, S.ankle]), fs);
       const mask = y.map((v, i) => !gap[i] && isF(v) && v > g[i] - band && vy[i] < vmax);
       const minLen = Math.max(2, Math.round(0.05 * fs));
       for (const [td, to] of segments(mask, minLen, Math.round(0.02 * fs))) {
@@ -308,7 +312,7 @@
     if (useV) r.notes.unshift("检测到镜头在移动或人斜向跑动，已改用“最低点静止”方法识别触地；步长和着地距离在跟拍镜头下不可靠，已隐藏。");
     if (useV) { for (const k of ["step_length_m", "speed_mps", "touchdown_distance_m", "hip_speed_mps"]) delete r.summary[k]; r.steps.forEach(s => { delete s.step_length_m; delete s.speed_mps; delete s.touchdown_distance_m; }); }
     r.debug = det.debug; r.legSwaps = fixed.swaps; r.pose = fixed.pose;
-    const anyGap = longGaps(fixed.pose.map((f, i) => (f && isF(f[SIDES.left.foot][1]) && isF(f[SIDES.right.foot][1])) ? 0 : NaN), fs);
+    const anyGap = longGaps(fixed.pose.map(f => (seen(f, SIDES.left.foot) && seen(f, SIDES.right.foot)) ? 0 : NaN), fs);
     r.gaps = gapRanges(anyGap);
     const gn = gapNote(r.gaps, fs, "触地");
     if (gn) r.notes.unshift(gn);
@@ -343,7 +347,7 @@
     // 最低的脚（图像 y 最大）
     const footIdx = [27, 28, 29, 30, 31, 32];
     const lowRaw = P.map(f => { if (!f) return NaN; const v = footIdx.map(j => f[j][1]).filter(isF); return v.length ? Math.max(...v) : NaN; });
-    const gap = longGaps(lowRaw, fs);
+    const gap = longGaps(seenSeries(P, footIdx), fs);
     const low = lowpass(lowRaw, fs, c.foot_filter_hz);
     const bodyH = median(P.map(f => f ? Math.max(...footIdx.map(j => f[j][1]).filter(isF)) - f[0][1] : NaN));
     const ground = percentile(low, c.ground_percentile);
