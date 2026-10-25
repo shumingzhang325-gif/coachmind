@@ -99,6 +99,14 @@
     out.toeY = toe.length ? Math.max(...toe) : out.ankleY;
     const lk = ok(f, K.lh) && ok(f, K.lk) ? tilt(f[K.lh], f[K.lk]) : NaN, rk = ok(f, K.rh) && ok(f, K.rk) ? tilt(f[K.rh], f[K.rk]) : NaN;
     out.thighL = isF(lk) ? 180 - Math.abs(lk) : NaN; out.thighR = isF(rk) ? 180 - Math.abs(rk) : NaN;   // 大腿抬起角：0 = 自然下垂，90 = 水平
+    // 以支撑腿为参照的抬腿角和躯干角：支撑腿基本竖直，和它比不受手机倾斜影响（v2.2 找错实验：倾斜 6° 误报“抬腿不够”）
+    const vec = (a, b) => [b[0] - a[0], b[1] - a[1]], up = v => Math.atan2(v[0], -v[1]) * DEG;
+    const ok4 = (...ids) => ids.every(i => ok(f, i));
+    const angBetween = (u, v) => { const n = Math.hypot(...u) * Math.hypot(...v); return n ? Math.acos(Math.max(-1, Math.min(1, (u[0] * v[0] + u[1] * v[1]) / n))) * DEG : NaN; };
+    out.thighRelL = ok4(K.lh, K.lk, K.rh, K.ra) ? angBetween(vec(f[K.lh], f[K.lk]), vec(f[K.rh], f[K.ra])) : NaN;
+    out.thighRelR = ok4(K.rh, K.rk, K.lh, K.la) ? angBetween(vec(f[K.rh], f[K.rk]), vec(f[K.lh], f[K.la])) : NaN;
+    out.trunkRelL = ok4(K.ls, K.lh, K.la) ? ((up(vec(f[K.lh], f[K.ls])) - up(vec(f[K.la], f[K.lh])) + 540) % 360) - 180 : NaN;   // 躯干相对左腿（左腿支撑时用）
+    out.trunkRelR = ok4(K.rs, K.rh, K.ra) ? ((up(vec(f[K.rh], f[K.rs])) - up(vec(f[K.ra], f[K.rh])) + 540) % 360) - 180 : NaN;
     out.valgusL = valgus(f, "l"); out.valgusR = valgus(f, "r");
     out.pelvis = ok(f, K.lh) && ok(f, K.rh) ? Math.atan2(f[K.rh][1] - f[K.lh][1], Math.abs(f[K.rh][0] - f[K.lh][0]) || 1e-9) * DEG : NaN;
     out.hipX = ok(f, K.lh) && ok(f, K.rh) ? (f[K.lh][0] + f[K.rh][0]) / 2 : NaN;
@@ -177,7 +185,7 @@
     { id: "highknee", name: "原地高抬腿", view: "side", setup: "正侧面，距离 3 米，全身入镜。原地快速高抬腿 10 秒。",
       principles: ["impulse", "specificity"], unit: "步",
       cues: { low: "大腿抬到水平", back: "身体别后仰，略向前倾" } },
-    { id: "balance", name: "单腿站立", view: "front", setup: "正对运动员，全身入镜。单腿站立，另一只脚离地，保持 10 秒以上。",
+    { id: "balance", name: "单腿站立", view: "front", setup: "正对运动员，全身入镜。先双脚站好 1 秒（用来对准骨盆基线），再单腿站立，另一只脚离地，保持 10 秒以上。",
       principles: ["balance", "injury"], unit: "秒",
       cues: { pelvis: "支撑侧臀部发力，骨盆放平", sway: "稳住，眼睛看前方一个固定点", valgus: "支撑腿膝盖对准脚尖" } },
   ];
@@ -286,7 +294,11 @@
         }
       },
       highknee(F, t) {
-        for (const [s, th] of [["L", F.thighL], ["R", F.thighR]]) {
+        const relOk = isF(F.thighRelL) && isF(F.thighRelR);
+        const thL = relOk ? F.thighRelL : F.thighL, thR = relOk ? F.thighRelR : F.thighR;
+        // 支撑腿 = 抬得低的那条腿；躯干角和支撑腿比
+        const trunkVsStance = relOk ? (thL < thR ? F.trunkRelL : F.trunkRelR) : F.trunkSigned;
+        for (const [s, th] of [["L", thL], ["R", thR]]) {
           if (!isF(th)) continue;
           const k = "up" + s;
           if (!st[k] && th > TH.highknee.thighUp) { st[k] = { peak: th }; }
@@ -298,7 +310,7 @@
               const peaks = (st["pk" + s] = (st["pk" + s] || []).concat(st[k].peak).slice(-3));
               const med = peaks.slice().sort((a, b) => a - b)[Math.floor(peaks.length / 2)];
               if (peaks.length >= 2 && med < TH.highknee.targetThigh) faults.push("low");   // 至少 2 步才下判断
-              if (isF(F.trunkSigned) && st.facing != null && -st.facing * F.trunkSigned > TH.highknee.backLean) faults.push("back");
+              if (isF(trunkVsStance) && st.facing != null && -st.facing * trunkVsStance > TH.highknee.backLean) faults.push("back");
               reps.push({ n: reps.length + 1, t, side: s, thigh: st[k].peak, faults });
               st[k] = null;
               if (faults.length) say(faults[0], t);
@@ -312,11 +324,15 @@
         if (!isF(F.ankleY) || !isF(F.hipX) || !isF(F.hipW)) return;
         st.lastF = F;
         const hold = F.oneLeg;
+        // 骨盆倾斜和本人双脚站立时比（不是和画面水平线比）：手机倾斜 4° 就会让稳的人被误报“骨盆下沉”（v2.2 找错实验发现），
+        // 和自己的双脚站立姿势比，手机倾斜和本身的左右高低差都被扣掉
+        if (!hold && isF(F.pelvis)) st.pelvis0 = st.pelvis0 == null ? F.pelvis : 0.9 * st.pelvis0 + 0.1 * F.pelvis;
+        const pelvisRel = isF(F.pelvis) ? F.pelvis - (st.pelvis0 ?? 0) : NaN;
         if (hold) {
-          if (!st.hold) st.hold = { t0: t, xs: [], tilts: [], valg: [] };
-          const h = st.hold; h.xs.push(F.hipX / F.hipW); h.tilts.push(Math.abs(F.pelvis)); h.valg.push(F.stanceValgus);
+          if (!st.hold) st.hold = { t0: t, xs: [], tilts: [], valg: [], noBase: st.pelvis0 == null };
+          const h = st.hold; h.xs.push(F.hipX / F.hipW); h.tilts.push(Math.abs(pelvisRel)); h.valg.push(F.stanceValgus);
           h.t1 = t;
-          if (Math.abs(F.pelvis) > TH.balance.pelvisTilt) say("pelvis", t);
+          if (Math.abs(pelvisRel) > TH.balance.pelvisTilt) say("pelvis", t);
           else if (isF(F.stanceValgus) && F.stanceValgus > TH.balance.valgus) say("valgus", t);
           const recent = h.xs.slice(-30); if (recent.length > 10 && sd(recent) > TH.balance.swayWarn) say("sway", t);
         } else if (st.hold) {
@@ -328,7 +344,7 @@
             if (tilt > TH.balance.pelvisTilt) faults.push("pelvis");
             if (sway > TH.balance.swayWarn) faults.push("sway");
             if (isF(vg) && vg > TH.balance.valgus) faults.push("valgus");
-            reps.push({ n: reps.length + 1, t, hold: dur, pelvis: tilt, sway, faults });
+            reps.push({ n: reps.length + 1, t, hold: dur, pelvis: tilt, sway, faults, noBaseline: h.noBase });
           }
         }
       },

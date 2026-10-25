@@ -925,7 +925,7 @@ details.kb-p[open] { border-color: rgba(201,164,92,0.5); }
 <section class="view" id="v-kb">
   <h2 class="big">知识库</h2>
   <p class="lead">从原理到动作：每条原理都写清楚它在哪些项目里起作用、在 App 里怎么测，以及它什么时候不成立。</p>
-  <div class="tabs" id="kbTabs"><button data-k="loop" aria-pressed="true">训练闭环</button><button data-k="principles" aria-pressed="false">原理</button><button data-k="measure" aria-pressed="false">测量</button><button data-k="debate" aria-pressed="false">争议</button></div>
+  <div class="tabs" id="kbTabs"><button data-k="loop" aria-pressed="true">训练闭环</button><button data-k="principles" aria-pressed="false">原理</button><button data-k="brain" aria-pressed="false">推理</button><button data-k="measure" aria-pressed="false">测量</button><button data-k="debate" aria-pressed="false">争议</button></div>
   <div id="kbBody"></div>
 </section>
 
@@ -973,9 +973,14 @@ details.kb-p[open] { border-color: rgba(201,164,92,0.5); }
       </div>
       <div class="clear" id="noVideo" hidden style="margin-top:14px">历史记录只保存指标和诊断，不保存视频。</div>
       <div class="mark" id="markBox" hidden>
-        <div class="hd"><span>手动标记触地</span><div class="scale" style="width:120px" id="markSide"><button data-s="left" aria-pressed="true">左</button><button data-s="right" aria-pressed="false">右</button></div></div>
+        <div class="hd"><span>核对关键帧（推荐）</span><div class="scale" style="width:120px" id="markSide"><button data-s="left" aria-pressed="true">左</button><button data-s="right" aria-pressed="false">右</button></div></div>
         <div class="btns"><button class="btn" id="markTd">这一帧着地</button><button class="btn" id="markTo">这一帧离地</button><button class="btn quiet" id="markClear" style="flex:none">清除</button></div>
         <p id="markInfo">逐帧找到脚刚接触地面的一帧点“着地”，刚离开地面的一帧点“离地”。标记后自动重新计算，手动结果优先。</p>
+      </div>
+      <div class="mark" id="jumpBox" hidden>
+        <div class="hd"><span>核对起跳帧和落地帧（推荐）</span></div>
+        <div class="btns"><button class="btn" id="jumpOff">这一帧离地</button><button class="btn" id="jumpOn">这一帧着地</button><button class="btn quiet" id="jumpClear" style="flex:none">清除</button></div>
+        <p id="jumpInfo"></p>
       </div>
       <div class="strip" id="strip"></div>
       <details class="dbg" id="dbgBox" hidden><summary>识别过程（排查问题用）</summary><div id="debugPlot"></div></details>
@@ -1006,6 +1011,8 @@ details.kb-p[open] { border-color: rgba(201,164,92,0.5); }
 <script src="sports.js"></script>
 <script src="knowledge.js"></script>
 <script src="live.js"></script>
+<script src="brain.js"></script>
+<script src="hrload.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
