@@ -113,7 +113,8 @@
             detail: `实时${r.drillName || ""} ${f.n}/${reps} 次${viewOk < 0.7 ? "（拍摄角度不理想，降权）" : ""}` });
         }
       } else if (r.summary && CM && TH && CARDS) {
-        const res = { action: r.action, fps: r.fpsReal || 240, summary: r.summary, contactMethod: r.contactMethod };
+        const res = { action: r.action, fps: r.fpsReal, summary: r.summary, contactMethod: r.contactMethod, depthDrift: r.depthDrift };   // 帧率缺失时由 engine 按 30 帧保守估计
+        const human = r.confirmed ? 1 : 0.85;                                   // 教练逐帧核对过关键帧的视频更可信（My Jump 等经过验证的工具都要人工确认关键帧）
         const hits = CM.matchCards(res, TH, CARDS);
         const all = hits.map(h => [h, 1]).concat((hits.borderline || []).map(h => [h, 0.3]));
         for (const [h, rel] of all) {
@@ -121,8 +122,8 @@
           const v = (r.verdicts || {})[h.id];
           if (v === "disagree") { excluded.push({ id: h.id, date: r.date, text: `${RULES[h.id].label}：教练判断“不认同”，已排除` }); continue; }
           const k = v === "agree" ? 1.3 : v === "test" ? 0.6 : 1;
-          out.push({ id: h.id, source: "video", date: r.date, reliability: clamp(rel * k, 0, 1) * decay,
-            detail: `视频 ${String(r.date).slice(5, 10)}：${h.symptom_text}${rel < 1 ? "（边缘结果）" : ""}${v === "agree" ? "（教练认同）" : ""}`, verdict: v });
+          out.push({ id: h.id, source: "video", date: r.date, reliability: clamp(rel * k * human, 0, 1) * decay,
+            detail: `视频 ${String(r.date).slice(5, 10)}：${h.symptom_text}${rel < 1 ? "（边缘结果）" : ""}${v === "agree" ? "（教练认同）" : ""}${r.confirmed ? "（关键帧已人工核对）" : ""}`, verdict: v });
         }
       }
     }

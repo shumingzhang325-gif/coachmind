@@ -47,6 +47,25 @@ for (const fs of [60, 120, 240]) {
   check(h.length === 0 && h.borderline.some(x => x.id === "SP-01"), `帧率未知时触地 0.125 s 只算边缘，不确认`);
 }
 
+console.log("\n违反拍摄假设（找错实验中发现的问题）");
+{
+  const rot = (P, deg) => { const a = deg * Math.PI / 180; return P.map(f => f.map(p => [960 + (p[0] - 960) * Math.cos(a) - (p[1] - 540) * Math.sin(a), 540 + (p[0] - 960) * Math.sin(a) + (p[1] - 540) * Math.cos(a), p[2]])); };
+  const base = CM.analyzeSprint(good, 240, TH, 0.005);
+  for (const deg of [-4, 3, 6]) {
+    const r = CM.analyzeSprint(rot(good, deg), 240, TH, 0.005), h = CM.matchCards(r, TH, CARDS);
+    check(Math.abs(r.tilt - deg) < 0.6, `手机倾斜 ${deg}°：估计 ${r.tilt}°`);
+    check(Math.abs(r.summary.contact_time_s - base.summary.contact_time_s) < 0.002 && Math.abs(r.summary.trunk_lean_td_deg - base.summary.trunk_lean_td_deg) < 0.5,
+      `手机倾斜 ${deg}°：校正后触地 ${r.summary.contact_time_s} s、躯干 ${r.summary.trunk_lean_td_deg}°，和正常拍摄一致（旧版 6° 时触地 0.074 s、躯干偏 6°）`);
+    check(!h.some(x => x.id === "SP-04"), `手机倾斜 ${deg}°：不误诊“左右不对称”（旧版 6° 时误诊）`);
+  }
+  // 由远到近：透视让地面线看起来是斜的——不能当作手机倾斜去“校正”，要提示步长不可靠
+  const near = good.map((f, i) => { const k = 1 + 0.15 * i / good.length; return f.map(p => [960 + (p[0] - 960) * k, 540 + (p[1] - 540) * k, p[2]]); });
+  const r = CM.analyzeSprint(near, 240, TH, 0.005);
+  check(r.tilt == null && r.notes.some(n => /离镜头的距离在变/.test(n)), `人越跑越近：不做倾斜校正，提示距离在变（变化 ${Math.round(r.depthDrift * 100)}%）`);
+  const U = CM.uncertainty(r);
+  check(Math.abs(r.summary.step_length_m - base.summary.step_length_m) <= U.step_length_m, `人越跑越近：步长 ${r.summary.step_length_m} m 的误差范围 ±${U.step_length_m.toFixed(2)} m 覆盖了真实偏差`);
+}
+
 console.log("\n纵跳：抛物线拟合（真值 0.500 s → 30.7 cm）");
 function jumpPose(fs, phase) {
   const n = Math.round(2 * fs), flight = 0.5, t0 = 1.0 + phase / fs, scale = 400 / 1.75, pose = [];

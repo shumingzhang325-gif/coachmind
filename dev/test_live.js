@@ -204,6 +204,35 @@ console.log("\n单腿站立（正面）");
   check(wobble.faults.some(f => f.key === "sway"), `晃动大报出`);
 }
 
+console.log("\n手机倾斜时的单腿站立（找错实验中发现：倾斜 4° 就误报骨盆下沉）");
+{
+  const rollF = (f, deg) => { if (!f) return f; const a = deg * Math.PI / 180; return f.map(p => [500 + (p[0] - 500) * Math.cos(a) - (p[1] - 600) * Math.sin(a), 600 + (p[0] - 500) * Math.sin(a) + (p[1] - 600) * Math.cos(a), p[2]]); };
+  const seq = (deg, tilt) => { const fps = 30, fr = [];
+    for (let i = 0; i < fps; i++) fr.push(rollF(noisy(frontPose({})), deg));
+    for (let i = 0; i < 5 * fps; i++) fr.push(rollF(noisy(frontPose({ liftFoot: "r", pelvisTilt: tilt, sway: Math.sin(i / 3) })), deg));
+    for (let i = 0; i < fps; i++) fr.push(rollF(noisy(frontPose({})), deg));
+    return run("balance", fr, fps); };
+  for (const deg of [-7, -4, 4, 7]) {
+    check(!seq(deg, 2).faults.some(f => f.key === "pelvis"), `手机倾斜 ${deg}°、骨盆只倾 2°：不误报`);
+    check(seq(deg, 11).faults.some(f => f.key === "pelvis"), `手机倾斜 ${deg}°、骨盆真的下沉 11°：仍能报出`);
+  }
+}
+
+console.log("\n手机倾斜时的高抬腿（找错实验中发现：倾斜 6° 误报抬腿不够）");
+{
+  const rollF = (f, deg) => { if (!f) return f; const a = deg * Math.PI / 180; return f.map(p => [400 + (p[0] - 400) * Math.cos(a) - (p[1] - 700) * Math.sin(a), 700 + (p[0] - 400) * Math.sin(a) + (p[1] - 700) * Math.cos(a), p[2]]); };
+  const seq = (deg, peak, trunk) => { const fps = 30, fr = [];
+    for (let i = 0; i < fps; i++) fr.push(rollF(noisy(sidePose({ knee: 178, trunkAbs: trunk })), deg));
+    for (let i = 0; i < 6 * fps; i++) { const w = 2 * Math.PI * 1.5 * i / fps; fr.push(rollF(noisy(sidePose({ knee: 178, trunkAbs: trunk, thighL: Math.max(0, Math.sin(w)) * peak, thighR: Math.max(0, -Math.sin(w)) * peak })), deg)); }
+    return run("highknee", fr, fps); };
+  for (const deg of [-12, -6, 6, 12]) {
+    const g = seq(deg, 88, 4), lo = seq(deg, 70, 4), back = seq(deg, 88, -14);
+    check(g.faults.length === 0, `手机倾斜 ${deg}°、动作正确：不误报`);
+    check(lo.faults.some(f => f.key === "low" && f.n > lo.n * 0.7), `手机倾斜 ${deg}°、抬腿只到 70°：仍能报出`);
+    check(back.faults.some(f => f.key === "back" && f.n > back.n * 0.7), `手机倾斜 ${deg}°、身体后仰 14°：仍能报出`);
+  }
+}
+
 console.log("\n去抖动：One-Euro 滤波减少静止抖动");
 {
   const f = LIVE.OneEuro(), xs = [], ys = [];

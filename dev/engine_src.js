@@ -262,7 +262,54 @@
     return { hz: r3(hz), steps: cross.length, frames: cross };
   }
 
+  // ---------- 画面倾斜校正 ----------
+  // 手机没放平时，“画面水平线”不是地面：3° 倾斜就会让触地识别失败、躯干角整体偏 3°，6° 时误诊“左右不对称”（v2.2 审查发现）。
+  // 每一步的着地点都踩在真实地面上：取每帧最低的脚点，按水平位置分段取最低处，稳健拟合一条直线 = 地面线，它的斜率就是倾斜角。
+  // 跟拍镜头（人一直在画面中间）着地点水平跨度不够，估不出来，返回 null。
+  function estimateTilt(pose) {
+    const pts = [];
+    for (const f of pose) {
+      if (!f) continue;
+      let best = null;
+      for (const j of [29, 30, 31, 32]) if (f[j] && isF(f[j][1]) && (!best || f[j][1] > best[1])) best = f[j];
+      if (best) pts.push([best[0], best[1]]);
+    }
+    if (pts.length < 20) return null;
+    const legLen = median(pose.map(f => f ? Math.hypot(f[23][0] - f[27][0], f[23][1] - f[27][1]) : NaN));
+    const xs = pts.map(p => p[0]), x0 = Math.min(...xs), x1 = Math.max(...xs);
+    if (!(x1 - x0 > 2.5 * legLen)) return null;                     // 水平跨度不到 2.5 倍腿长：跟拍或原地动作
+    const NB = 16, bins = Array.from({ length: NB }, () => null);
+    for (const [x, y] of pts) { const b = Math.min(NB - 1, Math.floor((x - x0) / (x1 - x0) * NB)); if (!bins[b] || y > bins[b][1]) bins[b] = [x, y]; }
+    let use = bins.filter(Boolean);
+    const fit = P => { const n = P.length, mx = P.reduce((t, p) => t + p[0], 0) / n, my = P.reduce((t, p) => t + p[1], 0) / n;
+      let sxy = 0, sxx = 0; for (const [x, y] of P) { sxy += (x - mx) * (y - my); sxx += (x - mx) ** 2; } const a = sxx ? sxy / sxx : 0; return [a, my - a * mx]; };
+    for (let k = 0; k < 3 && use.length >= 5; k++) {                   // 去掉离线太远的段（这一段里脚没着地）
+      const [a, b] = fit(use), res = use.map(([x, y]) => y - (a * x + b)), mad = median(res.map(Math.abs)) || 1;
+      use = use.filter((_, i) => Math.abs(res[i]) <= Math.max(3 * mad, 0.02 * legLen));
+    }
+    if (use.length < 5) return null;
+    return Math.atan(fit(use)[0]) * 180 / Math.PI;
+  }
+  function rotatePose(pose, deg) {
+    const a = -deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+    return pose.map(f => f ? f.map(p => [p[0] * c - p[1] * s, p[0] * s + p[1] * c, p[2]]) : null);
+  }
+  // 远近变化：侧面拍摄时大腿 + 小腿的画面长度基本不变；前三分之一和后三分之一差太多，说明人离镜头的距离在变，比例尺不再可靠
+  function depthDrift(pose) {
+    const L = pose.map(f => f ? (Math.hypot(f[23][0] - f[25][0], f[23][1] - f[25][1]) + Math.hypot(f[25][0] - f[27][0], f[25][1] - f[27][1])) : NaN);
+    const n = L.length, a = median(L.slice(0, Math.floor(n / 3))), b = median(L.slice(Math.floor(2 * n / 3)));
+    return isF(a) && isF(b) && a > 0 ? b / a - 1 : null;
+  }
+  // 拍摄视角：侧面拍摄时左右髋几乎重合；两髋水平距离 / 躯干长度太大，说明相机没有正对跑道侧面
+  function sideViewRatio(pose) {
+    return median(pose.map(f => { if (!f) return NaN; const torso = Math.hypot((f[11][0] + f[12][0]) / 2 - (f[23][0] + f[24][0]) / 2, (f[11][1] + f[12][1]) / 2 - (f[23][1] + f[24][1]) / 2); return torso ? Math.abs(f[23][0] - f[24][0]) / torso : NaN; }));
+  }
+
   function analyzeSprint(pose, fs, TH, scale) {
+    // 人离镜头的距离在变（透视让地面线看起来是斜的）时，分不清是透视还是手机歪了：不校正，只提示（宁可不校正，不能乱校正）
+    const drift0 = depthDrift(pose), perspective = isF(drift0) && Math.abs(drift0) > 0.05;
+    const tilt = perspective ? null : estimateTilt(pose);
+    if (isF(tilt) && Math.abs(tilt) > 0.5) pose = rotatePose(pose, tilt);
     const fixed = unswapLegs(pose);
     const base = sprintBase(fixed.pose, fs, TH.sprint);
     const det = detectSprintContacts(fixed.pose, fs, TH.sprint, base);
@@ -274,6 +321,15 @@
     if (useV) r.notes.unshift("检测到镜头在移动或人斜向跑动，已改用“最低点静止”方法识别触地；步长和着地距离在跟拍镜头下不可靠，已隐藏。");
     if (useV) { for (const k of ["step_length_m", "speed_mps", "touchdown_distance_m", "hip_speed_mps"]) delete r.summary[k]; r.steps.forEach(s => { delete s.step_length_m; delete s.speed_mps; delete s.touchdown_distance_m; }); }
     r.debug = det.debug; r.legSwaps = fixed.swaps; r.pose = fixed.pose;
+    r.tilt = isF(tilt) ? r1(tilt) : null;
+    if (isF(tilt) && Math.abs(tilt) > 0.5) r.notes.push(`画面倾斜约 ${Math.abs(r1(tilt))}°（手机没放平），已按地面线自动校正。`);
+    if (!isF(tilt)) r.notes.push(perspective ? "运动员离镜头的距离在变，没法判断手机是否放平：手机倾斜会让躯干角偏差同样的度数。" : "着地点的水平跨度不够（跟拍或只拍到一两步），没法检查手机是否放平：手机倾斜会让躯干角偏差同样的度数。");
+    const drift = depthDrift(fixed.pose);
+    r.depthDrift = isF(drift) ? r3(drift) : null;
+    if (isF(drift) && Math.abs(drift) > 0.05 && scale) r.notes.push(`运动员在画面里的大小前后变化了 ${Math.round(Math.abs(drift) * 100)}%（离镜头的距离在变），步长、速度、着地距离的误差会增大；请沿着与镜头垂直的直线跑。`);
+    const vr = sideViewRatio(fixed.pose);
+    r.viewRatio = isF(vr) ? r2(vr) : null;
+    if (isF(vr) && vr > 0.35) r.notes.push("相机没有正对跑道侧面（两髋在画面里分得较开）：关节角度会失真，步长要用同一画面里的标定物换算。");
     const cd = cadenceFromLegSwing(fixed.pose, fs, TH.sprint);
     if (cd) { r.summary.cadence_swing_hz = cd.hz; r.summary.cadence_spm = Math.round(cd.hz * 60); r.cadenceFrames = cd.frames; }
     if (r.steps.length < 2 && cd) r.notes.unshift(`脚的落点看不清，已改用摆腿周期测出步频 ${cd.hz.toFixed(2)} 步/秒（${Math.round(cd.hz * 60)} 步/分钟）。`);
@@ -372,6 +428,10 @@
       // 着地距离：着地时刻差 1 帧，髋就前移了“速度 / 帧率”（10 m/s、240 fps 时约 4 cm），再加关键点抖动约 2 cm
       const v = isF(s.hip_speed_mps) ? s.hip_speed_mps : isF(s.speed_mps) ? s.speed_mps : 9;
       u.touchdown_distance_m = k * v * fr + 0.02;
+      if (isF(result.depthDrift) && Math.abs(result.depthDrift) > 0.05) {          // 远近变化：距离类指标按变化比例加大误差
+        u.touchdown_distance_m += Math.abs(result.depthDrift) * (s.touchdown_distance_m || 0);
+        if (isF(s.step_length_m)) u.step_length_m = Math.abs(result.depthDrift) * s.step_length_m;
+      }
       u.trunk_lean_td_deg = 3; u.knee_angle_td_deg = 4;                 // 关键点抖动（经验值）
     } else if (result.action === "clean") {
       u.min_elbow_angle_first_pull_deg = 5; u.hip_angle_at_peak_velocity_deg = 5; u.bar_forward_max_m = 0.02;
@@ -541,6 +601,6 @@
   function r3(v) { return Math.round(v * 1000) / 1000; } function r4(v) { return Math.round(v * 10000) / 10000; }
 
   const API = { median, percentile, lowpass, derivative, angle, segments, fillNaN, SIDES, SKELETON,
-    analyzeSprint, analyzeGeneral, cadenceFromLegSwing, detectContactsVertical, sprintFromContacts, sprintBase, unswapLegs, analyzeClean, PlateTracker, matchCards, uncertainty, parabolaRoots, LABELS, fmt, PLATE_DIAMETER_M: 0.45 };
+    analyzeSprint, analyzeGeneral, cadenceFromLegSwing, detectContactsVertical, sprintFromContacts, sprintBase, unswapLegs, analyzeClean, PlateTracker, matchCards, uncertainty, parabolaRoots, estimateTilt, rotatePose, depthDrift, sideViewRatio, LABELS, fmt, PLATE_DIAMETER_M: 0.45 };
   if (typeof module !== "undefined" && module.exports) module.exports = API; else root.CM = API;
 })(typeof self !== "undefined" ? self : this);

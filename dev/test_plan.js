@@ -79,5 +79,24 @@ console.log("\n当天状态");
   check(g === day, `状态好：按原计划`);
 }
 
+console.log("\n负荷比与每日状态（对照同行做法后的修正）");
+{
+  // 前 3 周每天负荷 300，最近 1 周每天 450：不耦合的比值 = 450×7 ÷ (300×7) = 1.5；旧算法把最近一周也算进慢性，只得到 1.33，把骤增低估了
+  const W = []; for (let i = 0; i < 28; i++) W.push({ date: plus(-i), sleep: 8, fatigue: 2, soreness: 2, rpe: 5, minutes: i < 7 ? 90 : 60 });
+  const r = C.loadRatio(ath({ wellness: W }), today);
+  check(Math.abs(r - 1.5) < 0.02, `负荷骤增 50%：急慢性比 = ${r && r.toFixed(2)}（应为 1.50，旧算法只有 1.33）`);
+  // 个人正常范围：平时都睡 9 小时的人睡了 7.5 小时，通用线（< 6 小时）不报，按本人范围要报
+  const hist = (sleep, fatigue, extra = {}) => { const a = []; for (let i = 1; i <= 20; i++) a.push(Object.assign({ date: plus(-i), sleep: sleep + (i % 3 - 1) * 0.2, fatigue, soreness: 2 }, extra)); return a; };
+  const p1 = C.readiness(ath({ wellness: hist(9, 2).concat([{ date: plus(0), sleep: 7.5, fatigue: 2, soreness: 2 }]) }), today);
+  check(p1.level === "yellow" && /低于本人平时/.test(p1.reasons.join()), `平时睡 9 小时、今天 7.5 小时：按本人范围提醒（${p1.reasons.join("，")}）`);
+  // 长期自评疲劳 4 分的人：通用线每天都报警（“狼来了”），按本人范围今天正常就不报
+  const p2 = C.readiness(ath({ wellness: hist(8, 4).concat([{ date: plus(0), sleep: 8, fatigue: 4, soreness: 2 }]) }), today);
+  check(p2.level === "green" && p2.mode === "personal", `平时疲劳都是 4 分、今天也是 4 分：不报警（旧做法每天都报）`);
+  const p3 = C.readiness(ath({ wellness: hist(8, 2, { hrRest: 52 }).concat([{ date: plus(0), sleep: 8, fatigue: 2, soreness: 2, hrRest: 62 }]) }), today);
+  check(p3.reasons.some(x => /晨脉 62/.test(x)), `晨脉比本人平时高 10 次：提醒`);
+  const p4 = C.readiness(ath({ wellness: [{ date: plus(0), sleep: 5.5, fatigue: 2, soreness: 2 }] }), today);
+  check(p4.level === "yellow" && p4.mode === "general", `打卡不足 10 天：用通用线（睡 5.5 小时提醒）`);
+}
+
 console.log(fail ? `\n${fail} 项失败 ✗` : "\n全部通过 ✓");
 process.exit(fail ? 1 : 0);

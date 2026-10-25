@@ -222,26 +222,41 @@
   }
 
   // ---------------- 负荷与状态 ----------------
-  function loadRatio(a) {
-    const now = Date.now(), L = d => (a.wellness || []).filter(w => w.rpe && w.minutes && now - new Date(w.date).getTime() < d * 864e5).reduce((s, w) => s + w.rpe * w.minutes, 0);
-    const dates = (a.wellness || []).filter(w => w.rpe && w.minutes).map(w => new Date(w.date).getTime());
-    if (!dates.length || now - Math.min(...dates) < 21 * 864e5) return null;      // 不足 3 周历史，不计算
-    const acute = L(7), chronic = L(28) / 4;
+  // 急性/慢性负荷比：最近 7 天 ÷ 之前 21 天（第 8–28 天）的周平均。
+  // 不再把最近一周同时算进分子和分母（旧算法的“数学耦合”会人为制造相关，学界对此有批评）；比值只作提醒，不作受伤预测。
+  function loadRatio(a, today = new Date()) {
+    const now = today.getTime(), rows = (a.wellness || []).filter(w => w.rpe && w.minutes).map(w => ({ t: new Date(w.date).getTime(), L: w.rpe * w.minutes }));
+    if (!rows.length || now - Math.min(...rows.map(r => r.t)) < 21 * 864e5) return null;      // 不足 3 周历史，不计算
+    const sum = (d0, d1) => rows.filter(r => now - r.t >= d0 * 864e5 && now - r.t < d1 * 864e5).reduce((s, r) => s + r.L, 0);
+    const acute = sum(0, 7), chronic = sum(7, 28) / 3;
     return chronic > 0 ? acute / chronic : null;
   }
-  function readiness(a) {
-    const today = new Date().toISOString().slice(0, 10);
-    const w = (a.wellness || []).find(x => x.date === today);
+  // 当天状态：打卡满 10 天后和运动员自己的近 30 天正常范围比（平均值 ± 1 个标准差），而不是对所有人用同一条线
+  // （参考 HRV4Training 等的“个人正常范围”做法）；不足 10 天时用通用线。睡眠 < 5 小时、酸痛 5 分无论如何都提醒。
+  function personal(a, key, today) {
+    const since = today.getTime() - 30 * 864e5, todayStr = today.toISOString().slice(0, 10);
+    const v = (a.wellness || []).filter(w => w.date !== todayStr && new Date(w.date).getTime() >= since && isF(w[key])).map(w => w[key]);
+    if (v.length < 10) return null;
+    const m = v.reduce((t, x) => t + x, 0) / v.length, sd = Math.sqrt(v.reduce((t, x) => t + (x - m) ** 2, 0) / (v.length - 1));
+    return { m, sd: Math.max(sd, key === "sleep" ? 0.4 : key === "hrRest" ? 2 : 0.4), n: v.length };
+  }
+  function readiness(a, today = new Date()) {
+    const todayStr = today.toISOString().slice(0, 10);
+    const w = (a.wellness || []).find(x => x.date === todayStr);
     if (!w) return { level: "none", text: "早上花 10 秒打卡，App 会据此调整当天的训练强度" };
     const reasons = [];
-    if (w.sleep < 6) reasons.push(`睡眠 ${w.sleep} 小时`);
-    if (w.fatigue >= 4) reasons.push(`疲劳 ${w.fatigue}/5`);
-    if (w.soreness >= 4) reasons.push(`酸痛 ${w.soreness}/5`);
-    const acwr = loadRatio(a);
+    const S = personal(a, "sleep", today), Fa = personal(a, "fatigue", today), So = personal(a, "soreness", today), Hr = personal(a, "hrRest", today);
+    const mode = S || Fa || So ? "personal" : "general";
+    if (S ? w.sleep < S.m - S.sd : w.sleep < 6) reasons.push(`睡眠 ${w.sleep} 小时${S ? `（低于本人平时 ${r1(S.m)} 小时）` : ""}`);
+    else if (w.sleep < 5) reasons.push(`睡眠 ${w.sleep} 小时`);
+    if (Fa ? w.fatigue > Fa.m + Fa.sd && w.fatigue >= 3 : w.fatigue >= 4) reasons.push(`疲劳 ${w.fatigue}/5${Fa ? `（高于本人平时 ${r1(Fa.m)}）` : ""}`);
+    if (So ? (w.soreness > So.m + So.sd && w.soreness >= 3) || w.soreness >= 5 : w.soreness >= 4) reasons.push(`酸痛 ${w.soreness}/5${So ? `（高于本人平时 ${r1(So.m)}）` : ""}`);
+    if (isF(w.hrRest) && Hr && w.hrRest > Hr.m + Math.max(Hr.sd, 5)) reasons.push(`晨脉 ${w.hrRest}（比本人平时 ${Math.round(Hr.m)} 高）`);
+    const acwr = loadRatio(a, today);
     if (isF(acwr) && acwr > 1.5) reasons.push(`负荷突增（${r2(acwr)}）`);
     const level = reasons.length >= 2 ? "red" : reasons.length === 1 ? "yellow" : "green";
     const text = { green: "状态良好，按计划训练", yellow: "今天降低强度：冲刺改为技术课或节奏跑，力量减一组", red: "今天以恢复为主：只做灵活性、放松跑和软组织处理" }[level];
-    return { level, text, reasons, w };
+    return { level, text, reasons, w, mode, note: mode === "personal" ? "按本人近 30 天的正常范围判断" : "打卡满 10 天后，改为按本人的正常范围判断" };
   }
 
   // ---------------- 周期计划 ----------------

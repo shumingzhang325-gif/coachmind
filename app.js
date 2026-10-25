@@ -1103,7 +1103,7 @@
       id: S.savedId || Date.now(), date: S.date || new Date().toISOString(),
       athleteId: S.athleteId, athleteName: S.athleteName, action: S.action, sportId: S.sportId || null, techId: S.techId || null, checks: S.checks || {},
       jumps: (S.result.jumps || []).map(j => Object.assign({}, j)), fileName: S.file ? S.file.name : S.fileName,
-      fpsReal: S.fpsReal, N: S.N, summary: R.summary, contactMethod: R.contactMethod || null, steps: R.steps || null, notes: R.notes || [],
+      fpsReal: S.fpsReal, N: S.N, summary: R.summary, contactMethod: R.contactMethod || null, confirmed: !!(R.manual || R.manualJump), tilt: R.tilt ?? null, depthDrift: R.depthDrift ?? null, steps: R.steps || null, notes: R.notes || [],
       hits: S.hits.map(h => h.id), verdicts: S.verdicts, coachNote: $("coachNote").value.trim(),
       reviewed: Object.values(S.verdicts).some(Boolean), series: S.savedSeries || packSeries(),
     };
@@ -1123,7 +1123,7 @@
     Object.assign(S, { action: rec.action, sportId: rec.sportId, techId: rec.techId, checks: Object.assign({}, rec.checks || {}), athleteId: rec.athleteId, athleteName: rec.athleteName, fpsReal: rec.fpsReal, N: rec.N,
       savedId: rec.id, date: rec.date, verdicts: Object.assign({}, rec.verdicts), coachNote: rec.coachNote, fileName: rec.fileName, savedSeries: rec.series });
     const series = rec.series || {};
-    S.result = { action: rec.action, fps: rec.fpsReal, contactMethod: rec.contactMethod || null, summary: rec.summary, steps: rec.steps, notes: rec.notes, events: series.events || {}, series, jumps: rec.jumps || [] };
+    S.result = { action: rec.action, fps: rec.fpsReal, contactMethod: rec.contactMethod || null, depthDrift: rec.depthDrift ?? null, manual: !!rec.confirmed, summary: rec.summary, steps: rec.steps, notes: rec.notes, events: series.events || {}, series, jumps: rec.jumps || [] };
     if (rec.action === "general" && series.knee) S.N = series.knee.length;
     if (rec.action === "clean" && series.h) S.N = series.h.length;
     S.hits = CM.matchCards(S.result, TH, CARDS);
@@ -1289,9 +1289,9 @@
     const cur = (a.wellness || []).find(x => x.date === todayStr()) || { sleep: last.sleep || 8, fatigue: 2, soreness: 2 };
     const scale = (k, v) => `<div class="scale" data-k="${k}">${[1, 2, 3, 4, 5].map(n => `<button data-v="${n}" aria-pressed="${v === n}">${n}</button>`).join("")}</div>`;
     $("aToday").innerHTML = `<div class="hd"><i class="dot ${R.level}"></i><span class="grow">今天　${lv}</span><button class="btn sm" id="ciBtn">${A.checkin ? "收起" : R.level === "none" ? "打卡" : "修改"}</button></div>
-      <p>${esc(R.text)}${R.reasons && R.reasons.length ? `（${R.reasons.join("，")}）` : ""}</p>
+      <p>${esc(R.text)}${R.reasons && R.reasons.length ? `（${R.reasons.join("，")}）` : ""}${R.note ? `<br><small style="color:var(--muted)">${esc(R.note)}</small>` : ""}</p>
       ${A.checkin ? `<div class="checkin">
-        <div class="inrow"><label>昨晚睡眠（小时）<input type="number" inputmode="decimal" id="ciSleep" value="${cur.sleep}" step="0.5" min="0" max="14"></label></div>
+        <div class="inrow"><label>昨晚睡眠（小时）<input type="number" inputmode="decimal" id="ciSleep" value="${cur.sleep}" step="0.5" min="0" max="14"></label><label>晨脉（可选，起床后静躺 1 分钟）<input type="number" inputmode="numeric" id="ciHrRest" value="${cur.hrRest ?? ""}" min="30" max="120"></label></div>
         <div class="q"><span>疲劳程度（1 很轻松，5 很累）</span>${scale("fatigue", cur.fatigue)}</div>
         <div class="q"><span>肌肉酸痛（1 没有，5 很痛）</span>${scale("soreness", cur.soreness)}</div>
         <div class="inrow"><label>训练 RPE（0–10，训练后填）<input type="number" inputmode="decimal" id="ciRpe" value="${cur.rpe ?? ""}" min="0" max="10"></label><label>训练时长（分钟）<input type="number" inputmode="numeric" id="ciMin" value="${cur.minutes ?? ""}" min="0"></label></div>
@@ -1317,9 +1317,10 @@
       };
       $("ciSave").onclick = async () => {
         const e = { date: todayStr(), sleep: Number($("ciSleep").value) || 0, fatigue: vals.fatigue, soreness: vals.soreness };
-        const rpe = Number($("ciRpe").value), mins = Number($("ciMin").value);
+        const rpe = Number($("ciRpe").value), mins = Number($("ciMin").value), hrRest = Number($("ciHrRest").value);
         if ($("ciRpe").value !== "" && rpe >= 0) e.rpe = rpe;
         if (mins > 0) e.minutes = mins;
+        if (hrRest >= 30 && hrRest <= 120) e.hrRest = hrRest;
         if (window.HRLOAD && (imported || Number($("ciHrAvg").value) > 0)) {
           const type = day0 && day0.blocks[0] ? day0.blocks[0].t : "";
           const L = HRLOAD.sessionLoad({ samples: imported ? imported.samples : null, hrAvg: Number($("ciHrAvg").value) || undefined, minutes: e.minutes, rpe: e.rpe, type }, a);
@@ -1555,14 +1556,38 @@
   // 手动标记
   function setupMarking() {
     const box = $("markBox");
-    box.hidden = !(S.action === "sprint" && !$("playerWrap").hidden && ((S.result.steps || []).length < 2 || S.result.manual));
+    // 像 My Jump、MySprint 那样，让教练逐帧核对关键帧：自动识别只是起点，人工确认后结果最可信
+    box.hidden = !(S.action === "sprint" && !$("playerWrap").hidden);
+    setupJumpCheck();
     if (box.hidden) return;
     S.manual = S.manual || [];
     S.markSide = S.markSide || "left";
     $("markSide").querySelectorAll("button").forEach(b => { b.setAttribute("aria-pressed", b.dataset.s === S.markSide); b.onclick = () => { S.markSide = b.dataset.s; setupMarking(); }; });
     const done = S.manual.filter(c => c.to != null).length, open = S.manual.find(c => c.to == null);
-    $("markInfo").textContent = S.manual.length ? `已手动标记 ${done} 次完整触地${open ? `，${open.side === "left" ? "左" : "右"}脚等待标记离地` : ""}。` : "逐帧找到脚刚接触地面的一帧点“着地”，刚离开地面的一帧点“离地”。标记后自动重新计算，手动结果优先。";
+    $("markInfo").textContent = S.manual.length ? `已手动标记 ${done} 次完整触地${open ? `，${open.side === "left" ? "左" : "右"}脚等待标记离地` : ""}。` : `自动识别的触地已在下方色条标出。逐帧回看：脚刚接触地面的一帧点“着地”，刚离开地面的一帧点“离地”；和自动结果不一致时，以手动标记为准，结果会记为“已人工核对”。`;
   }
+  // 纵跳：核对起跳帧（第一帧双脚离地）和落地帧（第一帧接触地面），腾空时间 = 帧差 ÷ 帧率
+  function setupJumpCheck() {
+    const box = $("jumpBox"), J = S.result && S.result.jumps && S.result.jumps[0];
+    box.hidden = !(S.action === "general" && !$("playerWrap").hidden && J);
+    if (box.hidden) return;
+    S.jm = S.jm || {};
+    const auto = `自动识别：第 ${J.takeoff + 1} 帧离地、第 ${J.landing + 1} 帧着地。`;
+    $("jumpInfo").textContent = S.result.manualJump ? `已人工核对：第 ${S.jm.off + 1} 帧离地、第 ${S.jm.on + 1} 帧着地。${auto}` : `${auto}逐帧回看，找到第一帧双脚离地点“离地”，第一帧接触地面点“着地”；结果会记为“已人工核对”。`;
+  }
+  function applyJumpCheck() {
+    const { off, on } = S.jm || {};
+    if (!(on > off)) return;
+    const t = (on - off) / S.fpsReal, sm = S.result.summary;
+    sm.flight_time_s = Math.round(t * 1000) / 1000; sm.jump_height_cm = Math.round(9.81 * t * t / 8 * 1000) / 10; sm.jump_fitted = false;
+    S.result.manualJump = true;
+    S.result.notes = [`跳跃高度按教练核对的帧计算：第 ${off + 1} 帧离地、第 ${on + 1} 帧着地，腾空 ${sm.flight_time_s} s。`].concat((S.result.notes || []).filter(n => !/教练核对的帧/.test(n)));
+    S.hits = CM.matchCards(S.result, TH, CARDS);
+    renderResultPanels();
+  }
+  $("jumpOff").onclick = () => { S.jm = Object.assign(S.jm || {}, { off: frameOf(pv.currentTime) }); toast(`离地：第 ${S.jm.off + 1} 帧`); applyJumpCheck(); setupJumpCheck(); };
+  $("jumpOn").onclick = () => { const i = frameOf(pv.currentTime); if (S.jm && S.jm.off != null && i <= S.jm.off) { toast("着地帧要在离地帧之后"); return; } S.jm = Object.assign(S.jm || {}, { on: i }); toast(`着地：第 ${i + 1} 帧`); applyJumpCheck(); setupJumpCheck(); };
+  $("jumpClear").onclick = () => { S.jm = {}; toast("已清除，请重新分析以恢复自动结果"); setupJumpCheck(); };
   function recomputeFromManual() {
     const cts = S.manual.filter(c => c.to != null && c.to > c.td).map(c => ({ side: c.side, td: c.td, to: c.to }));
     if (!cts.length) return;
