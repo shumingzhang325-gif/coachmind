@@ -4,18 +4,19 @@ AI 运动科学教练系统。第一阶段是手机 Web App（GitHub Pages + iPh
 开发者：张书铭（Shuming），运动训练专业。用户界面全部用中文；回复用户也用中文。用户用 iPhone 16 Pro 测试，没有 Mac。
 
 线上地址：https://shumingzhang325-gif.github.io/coachmind/
-当前版本：v2.2（Service Worker 缓存名 coachmind-v21，每次发布都要加 1）
+当前版本：v2.3（Service Worker 缓存名 coachmind-v22，每次发布都要加 1）
 
 ## 文件
 - index.html：全部界面与样式（CSS 在 <style> 里，后面的规则覆盖前面的：依次是基础、皇家黑金、杂志封面风格）
 - app.js：主程序：视频读取、逐帧识别、选人跟踪、标定、结果页、IndexedDB 存储、运动员与计划界面
 - engine.js：分析算法（头部内嵌 CM_THRESHOLDS 与 CM_CARDS）。源码在 dev/engine_src.js，改源码后把 engine.js 头部（阈值与知识卡）+ engine_src.js 拼回去
-- coach.js：速度模型、七维画像、多学科分析、周期计划（短跑 + 5 个项群计划库 GROUP_PLANS）、每日状态。v2.1 计划：从档案 planStart 固定起点按日期推进；opts.focus 来自 brain.js；按年龄（birthYear）、训练年限（trainingYears）、伤病（injuries: [{part, status: current|history}]）改写内容；adjustDay 按当天打卡降强度；loadCheck 自检急性/慢性负荷比 ≤ 1.3，阶段切换自动“过渡周”
+- coach.js：速度模型、七维画像、多学科分析、周期计划（短跑 + 5 个项群计划库 GROUP_PLANS）、每日状态。导出 ymd/parseYmd（本地日期）、LOAD/blockLoad/HIGH（session.js 用）。v2.1 计划：从档案 planStart 固定起点按日期推进；opts.focus 来自 brain.js；按年龄（birthYear）、训练年限（trainingYears）、伤病（injuries: [{part, status: current|history}]）改写内容；adjustDay 按当天打卡降强度；loadCheck 自检急性/慢性负荷比 ≤ 1.3，阶段切换自动“过渡周”
 - brain.js：大脑（v2.1）：鉴别诊断。observationsFromRecords 把视频（用当前带误差的规则重新判断）、实时捕捉记录转成观察；reason 用 RULES（现象 → 可能原因先验 → 鉴别证据）算出各能力的分数和可信度，输出训练重点、推理链、还不能确定的、需要的测试、安全提醒。教练“不认同”的结论排除
 - hrload.js：心率负荷（v2.1）：心率区间、Edwards TRIMP、读取 TCX/GPX/CSV、sRPE 与心率负荷对照提示。为接入手表准备
-- docs/AUDIT.md：审查报告（审查标准、误差随帧率、发现的问题与修复、局限、手表接入路线；v2.2 新增“找错实验”和同行对比）
+- session.js：一分钟备课（v2.3）：build 把计划里的一天按可用时间、器材、直道长度、当天状态排成一堂课（顺序、分时间、压缩、代替方案）；finish/check 教练修改后自检；move/setMin/remove/add 修改；library 本阶段可加的内容；timeline 场边时间线；logSession 结束时写入 RPE 和时长。界面在 app.js 的“一分钟备课”“场边模式”两节；备好的课存在档案 sessions[日期]，条件存在 prepCtx
+- docs/AUDIT.md：审查报告（审查标准、误差随帧率、发现的问题与修复、局限、手表接入路线；v2.2 新增“找错实验”和同行对比；v2.3 新增第九节“一分钟备课”与日期错误）
 - sports.js：项目技术库（按项群训练理论：速度性/快速力量性/耐力性/表现难美性/隔网对抗性/同场对抗性，11 个项目）。每个技术有 principles 字段，链接到知识库的原理
-- knowledge.js：知识库宏观框架（v2.0）：18 条原理（生物力学/运动生理/训练学/运动学习，每条有规律、原因、在哪体现、怎么测、适用边界、证据等级、文献）+ 训练闭环（模型→测量→诊断→处方→改善→复测）+ 测量可靠性表 + 争议（正方/反方/我们的做法）。文献只能引用 coach.js REFS 里已核对的条目
+- knowledge.js：知识库宏观框架（v2.0）：19 条原理（v2.3 加“课内顺序”）（生物力学/运动生理/训练学/运动学习，每条有规律、原因、在哪体现、怎么测、适用边界、证据等级、文献）+ 训练闭环（模型→测量→诊断→处方→改善→复测）+ 测量可靠性表 + 争议（正方/反方/我们的做法）。文献只能引用 coach.js REFS 里已核对的条目
 - live.js：实时动作捕捉的纯计算（v2.0）：关节角度、One-Euro 去抖、视角检查、人体比例与“锁定”过滤、次数状态机、5 个动作（深蹲、深蹲·正面、反向纵跳、原地高抬腿、单腿站立）的指标与错误规则。阈值在 TH，需教练校准。界面在 app.js 的“实时动作捕捉”一节
 - img/opening.mp4、img/opening-poster.jpg：开屏与首页封面用的实拍视频（用户提供的 F1 车手片段，原片 1206×670/60fps，用 Real-ESRGAN realesr-general-x4v3 逐帧放大到 1920×1068，按 30fps 输出成 2 倍慢动作，约 7 秒，结尾淡出）。v1.6 起 cover.js（程序生成的日出田径场）已删除
 - sw.js：离线缓存
@@ -42,6 +43,8 @@ AI 运动科学教练系统。第一阶段是手机 Web App（GitHub Pages + iPh
 15. 不能假设手机放平：视频短跑用着地点拟合地面线校正倾斜（engine estimateTilt）；人离镜头距离在变时不校正（depthDrift），只提示。实时捕捉的角度和本人基线或支撑腿比（骨盆和双脚站立时比，抬腿和后仰和支撑腿比），不和画面水平/竖直线比。
 16. 急慢性负荷比不要“耦合”：慢性用第 8–28 天，不含最近 7 天。每日状态满 10 天后按本人正常范围判断，不对所有人用同一条线。
 17. 默认值要保守：缺帧率时按 30 fps，而不是 240 fps。关键帧经教练逐帧核对的视频（confirmed）在大脑里权重 1，未核对 0.85。
+18. 日期一律用本地日期：COACH.ymd(d) / COACH.parseYmd("YYYY-MM-DD")。不要用 toISOString().slice(0, 10)（UTC：北京时间早上 8 点前是昨天，本地零点的周一会变成周日，v2.2 以前计划页每天的日期都早一天），也不要 new Date("YYYY-MM-DD")（按 UTC 解析）。dev 里的 Node 默认 UTC，测不出来：test_session.js 用 TZ=Asia/Shanghai 等三个时区跑。
+19. 每日记录里可能只有训练后的 RPE 和时长（场边模式写入），没有睡眠、疲劳、酸痛：判断状态、算平均睡眠时只用真正的打卡，不能把缺的当 0。
 
 ## 分析流程与算法
 - 流程：选视频 → 帧率 → 选片段 → 选择运动员（点一下，自动试 6%–100% 大小的框，锁定点击处确实识别到人的最小框）→ 标定（短跑/高翻可选）→ 逐帧分析 → 结果。
@@ -61,6 +64,7 @@ AI 运动科学教练系统。第一阶段是手机 Web App（GitHub Pages + iPh
 - node test_brain.js（大脑：鉴别诊断方向、证据加权、教练意见优先、来源独立性、规则完整）
 - node test_plan.js（计划：周期按日期推进、352 种组合负荷自检、重点进入所有项目、年龄/训练年限/伤病/当天状态）
 - node test_hrload.js（心率：区间、TRIMP、TCX/GPX/CSV、各种不可信情况的提示）
+- node test_session.js（一分钟备课：10692 堂自动排课的顺序/时长/热身/不误报、按时间压缩、器材与直道、当天状态、教练改错能报出、场边记录、三个时区的本地日期）
 - 浏览器端：真实 MediaPipe 运行时在这个仓库的文件里，能联网时用 Playwright + Chromium 做端到端测试（注意用真实运行时，替身测不出 Emscripten 相关问题）。
 - 实时捕捉端到端：Chromium 加 --use-fake-device-for-media-stream --use-file-for-fake-video-capture=视频.y4m（ffmpeg 转 y4m）当摄像头。云端容器没有 GPU，只有 1–2 帧/秒，真机速度要在 iPhone 上看。Chromium 不支持 H.264，视频类测试用 VP9 副本。
 
@@ -78,7 +82,8 @@ AI 运动科学教练系统。第一阶段是手机 Web App（GitHub Pages + iPh
 ## 待办
 - 手表：做 iPhone 快捷指令，一键把当天训练的心率和时长交给 App（详见 docs/AUDIT.md 第五节）。
 - 大脑：规则权重是经验值，用研究一（AI vs 资深教练 Kappa）的结果校准；视频诊断结果要用测力台或高速摄像的真实数据确认误差。
-- 计划还没考虑：多场比赛的赛历、每次课可用时长与器材、炎热/海拔、教练对单次课的手动修改。
+- 计划还没考虑：多场比赛的赛历、炎热/海拔。（每次课可用时长与器材、教练对单次课的修改：v2.3 一分钟备课已做，修改只影响这一堂课，不回写周计划）
+- 一分钟备课：现在一次只给一名运动员备课；全队一起上课（同一堂课、每人状态不同）还没做。计划模板一天的内容约 2–2.5 小时，按真实可用时间校准 LOAD 表的分钟数。
 - 实时捕捉：在真机上确认识别帧率；用真实运动员（侧面/正面各拍几组）校准 live.js 的 TH 阈值，并比较实时纵跳高度和 240 帧视频的差异。
 - 用真实运动员慢动作视频（iPhone 240fps、三脚架固定机位）验证触地识别；阈值请老师校准。
 - 研究一：AI 诊断 vs 3 名资深教练（Kappa 一致性），导出 CSV 已支持。

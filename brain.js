@@ -11,6 +11,7 @@
   "use strict";
   const isF = Number.isFinite;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const localDay = s => (/^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + "T00:00:00") : new Date(s));   // “2026-11-09”按本地零点，不按 UTC
   const HALF_LIFE_DAYS = 28, MAX_AGE_DAYS = 120;
 
   // ---------------- 能力（训练计划的“重点”） ----------------
@@ -98,7 +99,7 @@
   function observationsFromRecords(records, opts = {}) {
     const { CM, TH, CARDS, today = new Date() } = opts, out = [], excluded = [];
     for (const r of records || []) {
-      const age = (today - new Date(r.date)) / 864e5;
+      const age = (today - localDay(r.date)) / 864e5;
       if (!(age >= -1) || age > MAX_AGE_DAYS) continue;
       const decay = Math.pow(0.5, Math.max(0, age) / HALF_LIFE_DAYS);
       if (r.action === "live") {
@@ -200,9 +201,10 @@
       C.why.push(`体能测试：${x.name} ${x.score} 分（目标模型 = 100），现在 ${x.cur}，目标 ${x.tgt}`);
     }
     // 每日状态
-    const W = (a.wellness || []).filter(w => (today - new Date(w.date)) / 864e5 <= 7);
+    // 只算早上的打卡：训练后记录（只有 RPE 和时长）没有睡眠，不能当 0 小时
+    const W = (a.wellness || []).filter(w => (today - localDay(w.date)) / 864e5 <= 7 && isF(w.sleep) && isF(w.fatigue));
     if (W.length >= 3) {
-      const sleep = W.reduce((s, w) => s + (w.sleep || 0), 0) / W.length, fat = W.reduce((s, w) => s + (w.fatigue || 0), 0) / W.length;
+      const sleep = W.reduce((s, w) => s + w.sleep, 0) / W.length, fat = W.reduce((s, w) => s + w.fatigue, 0) / W.length;
       if (sleep < 7 || fat >= 3.5) {
         const C = capOf("recovery"); C.score += sleep < 6.5 || fat >= 4 ? 1.2 : 0.7; C.sources.add("wellness");
         C.why.push(`近 7 天平均睡眠 ${sleep.toFixed(1)} 小时、疲劳 ${fat.toFixed(1)}/5`);
