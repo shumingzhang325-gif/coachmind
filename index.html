@@ -728,6 +728,61 @@ details.kb-p[open] { border-color: rgba(201,164,92,0.5); }
 @media (min-width: 900px) and (orientation: landscape) { .op-copy { bottom: 13vh; left: 7vw; } .op-top { padding-left: 7vw; padding-right: 5vw; } .op-title { font-size: clamp(72px, 9vw, 150px); } .op-line { left: 7vw; right: 5vw; } }
 @media (prefers-reduced-motion: reduce) { .opening video { animation: none; } .op-copy [data-l] { animation-duration: .01s; } }
 
+/* ================= 一分钟备课 + 场边模式（v2.3）：黑底象牙字，金色只做细线和小标题 ================= */
+.prep-cta { display: flex; gap: 8px; margin-top: 12px; }
+.prep-cta .btn { flex: 1; }
+.prep-sum { font-size: 12px; letter-spacing: 0.14em; color: var(--gold); margin: 8px 0 4px; }
+.today .bk .pmin, .pmin { float: right; font-family: var(--num); font-weight: 400; color: var(--muted); font-size: 13px; }
+#aPrep { margin-top: 14px; scroll-margin-top: 72px; }
+#pEq { flex-wrap: wrap; overflow: visible; }
+.prep { background: var(--surface); border-radius: 18px; padding: 16px 18px; border-top: 1px solid var(--gold); }
+.prep .hd { display: flex; align-items: center; gap: 10px; font-size: 16px; }
+.prep .hd .grow { flex: 1; letter-spacing: 0.06em; }
+.prep .x { border: 0; background: none; color: var(--muted); width: 36px; height: 36px; font-size: 20px; }
+.pctx { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 6px; }
+.pctx label { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 6px; font-size: 12px; color: var(--muted); letter-spacing: 0.06em; }
+.pctx label input { grid-column: 1; min-height: 44px; border: 0; border-radius: 10px; background: var(--sunk); padding: 0 12px; font-family: var(--num); font-size: 18px; width: 100%; min-width: 0; color: var(--ink); }
+.pctx label span { grid-column: 2; grid-row: 2; }
+.pctx label { grid-template-rows: auto auto; }
+.pctx label > input { grid-row: 2; }
+.psum { margin: 14px 0 6px; font-size: 14px; color: var(--muted); }
+.psum b { font-family: var(--num); font-size: 30px; color: var(--ink); font-weight: 400; margin-right: 2px; }
+.psum small { display: block; font-size: 11px; letter-spacing: 0.1em; }
+.chk { font-size: 13px; line-height: 1.6; padding: 8px 12px; margin: 6px 0; border-radius: 10px; color: var(--muted); background: var(--sunk); }
+.chk.warn { color: var(--ink); background: var(--red-soft); }
+.chk.warn b { color: var(--red); }
+.pb { border-top: 1px solid var(--rule); padding: 12px 0 10px; }
+.pb.warm, .pb.cool { opacity: 0.9; }
+.pbh { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pk { font-size: 11px; letter-spacing: 0.24em; color: var(--gold); }
+.pm { display: inline-flex; align-items: center; gap: 6px; }
+.pm b { font-family: var(--num); font-size: 22px; font-weight: 400; min-width: 1.6em; text-align: right; }
+.pm small { color: var(--muted); font-size: 12px; margin-right: 4px; }
+.pm button { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--rule); background: transparent; color: var(--ink); font-size: 18px; line-height: 1; }
+.pb h4 { margin: 4px 0 4px; font-size: 16px; font-weight: 600; }
+.pi { color: var(--muted); font-size: 14px; margin-top: 2px; }
+.pn { font-size: 12px; color: var(--gold-hi); margin-top: 6px; line-height: 1.5; padding-left: 10px; border-left: 1px solid var(--gold); }
+.pba { display: flex; gap: 8px; margin-top: 8px; }
+.pba button { flex: 1; min-height: 36px; border: 1px solid var(--rule); background: transparent; color: var(--muted); border-radius: 4px; font-size: 13px; letter-spacing: 0.08em; }
+.prep .addtest { grid-template-columns: 1fr auto; }
+.day .dprep { display: block; margin-top: 8px; border: 1px solid var(--rule); background: transparent; color: var(--muted); border-radius: 4px; font-size: 11px; letter-spacing: 0.08em; padding: 4px 0; width: 100%; }
+.side { min-height: calc(100vh - 120px); display: flex; flex-direction: column; }
+.side-top { display: flex; justify-content: space-between; font-family: var(--num); color: var(--muted); font-size: 14px; }
+.side-prog { height: 1px; background: var(--rule); margin-top: 10px; position: relative; }
+.side-prog i { position: absolute; left: 0; top: -1px; height: 3px; background: var(--gold); width: 0; transition: width .5s linear; }
+.side-t { font-family: var(--serif); font-size: clamp(28px, 8vw, 44px); font-weight: 700; margin: 6px 0 0; line-height: 1.2; }
+.side-clock { font-family: var(--num); font-size: clamp(84px, 30vw, 180px); line-height: 1; margin: 18px 0 8px; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.side-clock.over { color: var(--gold-hi); }
+.side-clock.paused { opacity: 0.45; }
+.side-items { font-size: 17px; line-height: 1.6; color: var(--ink); }
+.side-items > div + div { margin-top: 6px; }
+.side-next { color: var(--muted); font-size: 14px; margin: 16px 0 12px; }
+.side-ctrl { display: flex; gap: 8px; margin-top: 8px; }
+.side-ctrl .btn { flex: 1; padding: 0 8px; }
+.scale.rpe button { font-size: 15px; min-height: 48px; }
+.side-min { display: flex; align-items: center; gap: 10px; margin-top: 14px; color: var(--muted); font-size: 14px; }
+.side-min input { width: 90px; min-height: 44px; border: 0; border-radius: 10px; background: var(--sunk); padding: 0 12px; font-family: var(--num); font-size: 20px; color: var(--ink); }
+
 </style>
 </head>
 <body>
@@ -933,6 +988,7 @@ details.kb-p[open] { border-color: rgba(201,164,92,0.5); }
 <section class="view" id="v-athlete">
   <div class="board" id="aBoard"></div>
   <div class="today" id="aToday"></div>
+  <div id="aPrep" hidden></div>
   <div class="tabs" role="tablist">
     <button data-pane="profile" aria-pressed="true">画像</button>
     <button data-pane="plan" aria-pressed="false">计划</button>
@@ -941,6 +997,11 @@ details.kb-p[open] { border-color: rgba(201,164,92,0.5); }
   <div class="pane on" id="p-profile"></div>
   <div class="pane" id="p-plan"></div>
   <div class="pane" id="p-info"></div>
+</section>
+
+<!-- 场边模式 -->
+<section class="view" id="v-side">
+  <div class="side" id="sideBox"></div>
 </section>
 
 <!-- 结果 -->
@@ -1013,6 +1074,7 @@ details.kb-p[open] { border-color: rgba(201,164,92,0.5); }
 <script src="live.js"></script>
 <script src="brain.js"></script>
 <script src="hrload.js"></script>
+<script src="session.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

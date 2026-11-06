@@ -75,10 +75,11 @@
   const VIEW_META = {
     home: { title: "", step: 0 }, sport: { title: "项目技术库", step: 0 }, new: { title: "选择视频", step: 1 }, calib: { title: "片段与标定", step: 2 },
     process: { title: "分析", step: 3 }, result: { title: "分析结果", step: 0 }, athlete: { title: "运动员", step: 0 },
-    live: { title: "实时动作捕捉", step: 0 }, kb: { title: "知识库", step: 0 },
+    live: { title: "实时动作捕捉", step: 0 }, kb: { title: "知识库", step: 0 }, side: { title: "场边模式", step: 0 },
   };
   function show(v, push = true) {
     if (v !== "live" && LV.running) stopLive(false);   // 离开实时页面：关摄像头
+    if (v !== "side" && typeof stopSide === "function") stopSide();   // 离开场边模式：停计时、释放屏幕常亮
     document.querySelectorAll("section.view").forEach(s => s.classList.toggle("on", s.id === "v-" + v));
     if (push && viewStack[viewStack.length - 1] !== v) viewStack.push(v);
     const m = VIEW_META[v];
@@ -1162,15 +1163,16 @@
     const rows = all.map(a => [a.date, a.athleteName, a.action === "live" ? actionLabel(a) : ACTION_NAME[a.action], a.fpsReal, ...keys.map(k => a.summary[k]),
       ...cardIds.map(id => (a.hits || []).includes(id) ? 1 : 0), ...cardIds.map(id => (a.verdicts || {})[id] || ""), a.coachNote].map(q).join(","));
     const csv = "\uFEFF" + [head.map(q).join(","), ...rows].join("\n");
-    const file = new File([csv], `知练数据_${new Date().toISOString().slice(0, 10)}.csv`, { type: "text/csv" });
+    const file = new File([csv], `知练数据_${COACH.ymd(new Date())}.csv`, { type: "text/csv" });
     if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === "AbortError") return; } }
     const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = file.name; a.click();
   };
 
   // ================= 运动员：画像、计划、档案 =================
   const A = { cur: null, pane: "profile", week: null, checkin: false };
-  const todayStr = () => new Date().toISOString().slice(0, 10);
-  const daysTo = d => d ? Math.ceil((new Date(d) - new Date(todayStr())) / 864e5) : null;
+  // 本地日期（toISOString 是 UTC：北京时间早上 8 点前会变成昨天，计划里的周一会显示成周日）
+  const todayStr = () => COACH.ymd(new Date());
+  const daysTo = d => d ? Math.round((COACH.parseYmd(d) - COACH.parseYmd(todayStr())) / 864e5) : null;
   const f2 = v => (Number.isFinite(v) ? v.toFixed(2) : "–");
   const refHtml = keys => keys.filter(k => COACH.REFS[k]).map(k => { const r = COACH.REFS[k]; return `<div>${esc(r.t)}${r.doi ? ` <a href="https://doi.org/${r.doi}" target="_blank" rel="noopener">doi.org/${r.doi}</a>` : ""}</div>`; }).join("");
 
@@ -1196,9 +1198,9 @@
     return { video, P, B, I: COACH.insights(a, P, video), PL: COACH.plan(a, P, new Date(), { focus, addons }), R: COACH.readiness(a) };
   }
   function currentWeekIndex(PL) {
-    const t = new Date(todayStr());
+    const t = COACH.parseYmd(todayStr());
     let idx = 0;
-    PL.weeks.forEach((w, i) => { if (new Date(w.start) <= t) idx = i; });
+    PL.weeks.forEach((w, i) => { if (COACH.parseYmd(w.start) <= t) idx = i; });
     return idx;
   }
 
@@ -1238,7 +1240,7 @@
   async function openAthlete(id, pane) {
     const a = (await dbAll("athletes")).find(x => x.id === id);
     if (!a) return;
-    A.cur = a; A.pane = pane || "profile"; A.week = null; A.checkin = false;
+    A.cur = a; A.pane = pane || "profile"; A.week = null; A.checkin = false; A.prep = null;
     await renderAthlete();
     show("athlete");
   }
@@ -1253,7 +1255,7 @@
       $("aBoard").innerHTML = `<div class="who"><span>${esc(a.name)}　${esc(sp.name)}</span><span>${a.goalDate ? a.goalDate.replace(/-/g, "/") : "未设目标日期"}</span></div>
         <div class="main"><b>${d != null && d >= 0 ? d : "–"}</b><small>天</small></div><div class="lbl">距离目标比赛</div>
         <div class="sub"><div><b style="font-size:20px">${esc(a.goalText || "未填写目标")}</b><span class="lbl">目标</span></div><div><b style="font-size:20px">${esc(SPORTLIB.GROUPS.find(g => g.id === sp.group).name)}</b><span class="lbl">项群</span></div></div>`;
-      renderAthleteToday();
+      renderAthleteToday(); renderPrep();
       document.querySelectorAll(".tabs button").forEach(b => { b.setAttribute("aria-pressed", b.dataset.pane === A.pane); b.onclick = () => { A.pane = b.dataset.pane; renderPanes(); }; });
       renderPanes(); return;
     }
@@ -1264,7 +1266,7 @@
         <div><b>${Number.isFinite(a.pb) ? a.pb.toFixed(2) : "–"}<small>s</small></b><span class="lbl">当前最好</span></div>
         <div><b>${d != null && d >= 0 ? d : "–"}<small>天</small></b><span class="lbl">${Number.isFinite(C.P.improvePct) ? `需要快 ${C.P.improvePct.toFixed(1)}%` : "距目标日"}</span></div>
       </div>`;
-    renderAthleteToday();
+    renderAthleteToday(); renderPrep();
     document.querySelectorAll(".tabs button").forEach(b => { b.setAttribute("aria-pressed", b.dataset.pane === A.pane); b.onclick = () => { A.pane = b.dataset.pane; renderPanes(); }; });
     renderPanes();
   }
@@ -1281,12 +1283,17 @@
     const a = A.cur, { PL, R } = A.C;
     const wi = currentWeekIndex(PL), w = PL.weeks[wi];
     const dow = (new Date().getDay() + 6) % 7;
-    const day0 = w && new Date(w.start) <= new Date(todayStr()) ? w.days.find(x => x.dow === dow) : null;
+    const day0 = w && COACH.parseYmd(w.start) <= COACH.parseYmd(todayStr()) ? w.days.find(x => x.dow === dow) : null;
     const day = COACH.adjustDay ? COACH.adjustDay(day0, R) : day0;     // 打卡状态一般 → 降强度；状态差 → 改恢复
-    const sess = day ? day.blocks.map(b => `<div class="bk"><b>${esc(b.t)}</b>${b.items.map(i => `<div>${esc(i)}</div>`).join("")}</div>`).join("") : `<div class="bk"><b>今天没有安排训练</b><div>休息或轻松活动</div></div>`;
+    const prepared = window.SESSION && a.sessions && a.sessions[todayStr()] && !a.sessions[todayStr()].rest ? a.sessions[todayStr()] : null;
+    const stateNote = prepared && (R.level === "red" || R.level === "yellow") ? `<div class="msg" style="margin:6px 0">今天状态${R.level === "red" ? "差" : "一般"}，这堂课是之前排的：点“修改这堂课”，按今天的状态重新排</div>` : "";
+    const sess = prepared ? stateNote + `<div class="prep-sum">已备课　共 ${prepared.total} 分钟${prepared.edited ? "　教练改过" : ""}${prepared.run && prepared.run.done ? "　已完成" : ""}</div>` + prepared.blocks.map(b => `<div class="bk"><b>${esc(b.t)}<span class="pmin">${b.min} 分</span></b>${b.items.map(i => `<div>${esc(i)}</div>`).join("")}</div>`).join("")
+      : day ? day.blocks.map(b => `<div class="bk"><b>${esc(b.t)}</b>${b.items.map(i => `<div>${esc(i)}</div>`).join("")}</div>`).join("") : `<div class="bk"><b>今天没有安排训练</b><div>休息或轻松活动</div></div>`;
+    const canPrep = window.SESSION && day0 && !day0.blocks.every(b => /^休息/.test(b.t));
     const lv = { green: "状态良好", yellow: "注意", red: "需要恢复", none: "今天还没打卡" }[R.level];
-    const last = (a.wellness || []).slice(-1)[0] || {};
-    const cur = (a.wellness || []).find(x => x.date === todayStr()) || { sleep: last.sleep || 8, fatigue: 2, soreness: 2 };
+    // 今天可能已有场边模式写入的 RPE 和时长（没有睡眠、疲劳）：缺的项用默认值，不能显示成空
+    const last = (a.wellness || []).filter(x => Number.isFinite(x.sleep)).slice(-1)[0] || {};
+    const cur = Object.assign({ sleep: last.sleep || 8, fatigue: 2, soreness: 2 }, (a.wellness || []).find(x => x.date === todayStr()) || {});
     const scale = (k, v) => `<div class="scale" data-k="${k}">${[1, 2, 3, 4, 5].map(n => `<button data-v="${n}" aria-pressed="${v === n}">${n}</button>`).join("")}</div>`;
     $("aToday").innerHTML = `<div class="hd"><i class="dot ${R.level}"></i><span class="grow">今天　${lv}</span><button class="btn sm" id="ciBtn">${A.checkin ? "收起" : R.level === "none" ? "打卡" : "修改"}</button></div>
       <p>${esc(R.text)}${R.reasons && R.reasons.length ? `（${R.reasons.join("，")}）` : ""}${R.note ? `<br><small style="color:var(--muted)">${esc(R.note)}</small>` : ""}</p>
@@ -1299,8 +1306,11 @@
         <p class="lead" style="font-size:12px;margin:0 0 8px">手表记录：从 Garmin Connect、Strava、HealthFit（Apple Watch）等导出 TCX / GPX / CSV 文件。短跑、力量、跳跃课心率跟不上，以 RPE × 时长为准。</p>
         <button class="btn go" id="ciSave">保存今日状态</button></div>` : ""}
       ${cur.hr ? `<div class="msg" style="margin-top:8px"><b>心率负荷</b>　${cur.hr.trimp != null ? `TRIMP ${cur.hr.trimp}` : ""}${cur.hr.hrAvg ? `　平均 ${cur.hr.hrAvg}` : ""}${cur.hr.hrPeak ? `　最高 ${cur.hr.hrPeak}` : ""}${cur.hr.zoneMin ? `<br><small>${cur.hr.zoneMin.map((m, i) => `${i + 1} 区 ${m} 分`).join("　")}</small>` : ""}${(cur.hr.notes || []).map(n => `<br><small>${esc(n)}</small>`).join("")}</div>` : ""}
-      <div class="sess"><b style="font-size:15px">${w ? `第 ${wi + 1} 周　${w.phaseName}${w.deload ? "　调整周" : ""}` : ""}</b>${day && day.adjusted ? `<div class="msg" style="margin:6px 0">${day.adjusted === "red" ? "今天状态差，已把计划改为恢复课" : "今天状态一般，高强度内容已降强度"}</div>` : ""}${sess}</div>`;
+      <div class="sess"><b style="font-size:15px">${w ? `第 ${wi + 1} 周　${w.phaseName}${w.deload ? "　调整周" : ""}` : ""}</b>${day && day.adjusted ? `<div class="msg" style="margin:6px 0">${day.adjusted === "race" ? "比赛日：比赛照常，按状态打卡加了提醒" : day.adjusted === "red" ? "今天状态差，已把计划改为恢复课" : "今天状态一般，高强度内容已降强度"}</div>` : ""}${sess}
+      ${canPrep ? `<div class="prep-cta"><button class="btn sm" id="prepOpen">${prepared ? "修改这堂课" : "一分钟备课"}</button>${prepared ? `<button class="btn go sm" id="sideOpen">场边模式</button>` : ""}</div>` : ""}</div>`;
     $("ciBtn").onclick = () => { A.checkin = !A.checkin; renderAthleteToday(); };
+    if ($("prepOpen")) $("prepOpen").onclick = () => openPrep(todayStr());
+    if ($("sideOpen")) $("sideOpen").onclick = () => startSide(todayStr());
     if (A.checkin) {
       const vals = { fatigue: cur.fatigue, soreness: cur.soreness };
       $("aToday").querySelectorAll(".scale").forEach(s => s.querySelectorAll("button").forEach(b => b.onclick = () => {
@@ -1331,6 +1341,224 @@
         await renderAthlete();
       };
     }
+  }
+
+  // ----- 一分钟备课：按可用时间、器材、场地、当天状态，把计划里的一天排成一堂课 -----
+  function planDayFor(date) {
+    const PL = A.C.PL, t = COACH.parseYmd(date), dow = (t.getDay() + 6) % 7;
+    let wi = -1;
+    PL.weeks.forEach((w, i) => { const s = COACH.parseYmd(w.start); if (s <= t && t - s < 7 * 864e5) wi = i; });
+    const w = PL.weeks[wi];
+    return w ? { w, wi, day: w.days.find(x => x.dow === dow) || null } : { w: null, wi, day: null };
+  }
+  function prepOpts(date) {
+    const PL = A.C.PL, D = planDayFor(date);
+    return { R: date === todayStr() ? A.C.R : null, F: PL.factors, group: PL.sport ? PL.sport.group : "speed", week: D.w ? Object.assign({ index: D.wi }, D.w) : null, date };
+  }
+  async function savePrep(S) {
+    const a = A.cur, keep = {};
+    a.sessions = a.sessions || {};
+    a.sessions[S.date] = S;
+    const cut = COACH.ymd(new Date(Date.now() - 60 * 864e5));         // 只留最近 60 天
+    Object.keys(a.sessions).forEach(k => { if (k >= cut) keep[k] = a.sessions[k]; });
+    a.sessions = keep;
+    await saveAthlete();
+  }
+  function genPrep(date) {
+    const a = A.cur, D = planDayFor(date), ctx = a.prepCtx || {};
+    const S = SESSION.build(D.day, Object.assign({ minutes: ctx.minutes || 90, equipment: ctx.equipment || null, straight: ctx.straight || null }, prepOpts(date)));
+    S.date = date;
+    return S;
+  }
+  async function openPrep(date) {
+    if (!window.SESSION) return;
+    const a = A.cur;
+    let S = a.sessions && a.sessions[date];
+    if (!S) { S = genPrep(date); await savePrep(S); }
+    A.prep = { date };
+    renderPrep(); renderAthleteToday();
+    const box = $("aPrep"); if (box) box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function renderPrep() {
+    const box = $("aPrep"); if (!box) return;
+    if (!A.prep || !window.SESSION || !A.cur) { box.innerHTML = ""; box.hidden = true; return; }
+    box.hidden = false;
+    const a = A.cur, date = A.prep.date, D = planDayFor(date);
+    let S = a.sessions && a.sessions[date];
+    if (!S) { box.innerHTML = ""; return; }
+    SESSION.finish(S, prepOpts(date));                                   // 用最新的当天状态重新自检
+    const stale = D.day && S.src !== SESSION.srcOf(D.day);
+    const ctx = S.ctx, eq = ctx.equipment;
+    const dt = COACH.parseYmd(date), wd = "日一二三四五六"[dt.getDay()];
+    const PARTS = SESSION.PARTS;
+    const extras = [];
+    const B = A.C.B;
+    if (B) B.focus.forEach(k => { const c = window.BRAIN && BRAIN.CAPS[k]; if (c) extras.push({ t: "重点：" + c.name, items: [c.addon] }); });
+    const lib = D.w ? SESSION.library(A.C.PL, D.wi, extras) : [];
+    const blocks = S.blocks.map((b, i) => {
+      const main = b.kind !== "warm" && b.kind !== "cool";
+      return `<div class="pb ${b.kind}"><div class="pbh"><span class="pk">${PARTS[b.kind] ? PARTS[b.kind].name : ""}</span>
+        <span class="pm"><button data-act="minus" data-i="${i}" aria-label="减 5 分钟">−</button><b>${b.min}</b><small>分</small><button data-act="plus" data-i="${i}" aria-label="加 5 分钟">＋</button></span></div>
+        <h4>${esc(b.t)}</h4>${b.items.map(x => `<div class="pi">${esc(x)}</div>`).join("")}
+        ${b.notes.map(n => `<div class="pn">${esc(n)}</div>`).join("")}
+        ${main ? `<div class="pba"><button data-act="up" data-i="${i}">上移</button><button data-act="down" data-i="${i}">下移</button><button data-act="del" data-i="${i}">删除</button></div>` : ""}</div>`;
+    }).join("");
+    const L = S.load;
+    box.innerHTML = `<div class="prep">
+      <div class="hd"><b class="grow">备课　${dt.getMonth() + 1}/${dt.getDate()} 周${wd}</b><button class="x" id="prepClose" aria-label="收起">×</button></div>
+      <p class="lead" style="margin:4px 0 10px;font-size:13px">${esc(S.title || "")}　课的内容来自训练计划和诊断推理；这里只按条件排顺序、分时间，教练可以再改。</p>
+      <div class="pctx"><label>可用时间<input type="number" inputmode="numeric" id="pMin" value="${ctx.minutes}" min="20" max="240" step="5"><span>分钟</span></label>
+        <label>直道长度<input type="number" inputmode="numeric" id="pStraight" value="${ctx.straight || ""}" placeholder="不限" min="10" max="400"><span>米</span></label></div>
+      <div class="chips" id="pEq">${SESSION.EQUIP.map(e => `<button data-k="${e.k}" aria-pressed="${!eq || eq.includes(e.k)}">${e.name}</button>`).join("")}</div>
+      <button class="btn sm" id="pGen" style="width:100%">按这些条件重新排${S.edited ? "（会替换你的修改）" : ""}</button>
+      ${stale ? `<div class="msg">训练计划已经更新（新的测试、诊断或伤病记录），这堂课是按旧计划排的，建议重新排。</div>` : ""}
+      ${S.rest ? "" : `<div class="psum"><b>${S.total}</b> 分钟（可用 ${ctx.minutes}）　主体负荷约 ${L.main}${L.planned ? `，计划 ${L.planned}` : ""}<small>RPE × 分钟，估算</small></div>`}
+      ${S.checks.map(c => `<div class="chk ${c.level}">${c.level === "warn" ? "<b>注意</b>　" : ""}${esc(c.text)}</div>`).join("")}
+      ${(S.notes || []).map(n => `<div class="chk tip">${esc(n)}</div>`).join("")}
+      ${blocks}
+      ${!S.rest && lib.length ? `<div class="addtest"><select id="pAdd">${lib.map((b, i) => `<option value="${i}">${esc(b.t)}</option>`).join("")}</select><button class="btn sm" id="pAddBtn">加一项</button></div>` : ""}
+      ${!S.rest ? `<button class="btn go" id="pSide" style="width:100%;margin-top:12px">场边模式</button>` : ""}
+      <p class="lead" style="font-size:12px;margin-top:10px">排课规则（经验原则，见知识库“课内顺序”）：热身 → 速度与技术 → 专项 → 力量与爆发 → 耐力 → 预防 → 放松。时间不够时先压次要内容，速度和力量课减组数、不缩短组间休息；不会为了填满时间而加量。</p>
+    </div>`;
+    const redo = async S2 => { await savePrep(S2); renderPrep(); renderAthleteToday(); };
+    $("prepClose").onclick = () => { A.prep = null; renderPrep(); };
+    $("pEq").querySelectorAll("button").forEach(b => b.onclick = () => b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"));
+    $("pGen").onclick = async () => {
+      if (S.edited && !confirm("重新排会替换你对这堂课的修改，继续？")) return;
+      const minutes = Number($("pMin").value), straight = Number($("pStraight").value);
+      const on = [...$("pEq").querySelectorAll("button")].filter(b => b.getAttribute("aria-pressed") === "true").map(b => b.dataset.k);
+      a.prepCtx = { minutes: minutes >= 20 ? minutes : 90, equipment: on.length === SESSION.EQUIP.length ? null : on, straight: straight > 0 ? straight : null };
+      await redo(genPrep(date)); toast("已按新条件排好");
+    };
+    box.querySelectorAll("[data-act]").forEach(b => b.onclick = async () => {
+      const i = Number(b.dataset.i), o = prepOpts(date), act = b.dataset.act;
+      if (act === "minus") SESSION.setMin(S, i, S.blocks[i].min - 5, o);
+      if (act === "plus") SESSION.setMin(S, i, S.blocks[i].min + 5, o);
+      if (act === "up") SESSION.move(S, i, -1, o);
+      if (act === "down") SESSION.move(S, i, 1, o);
+      if (act === "del") SESSION.remove(S, i, o);
+      await redo(S);
+    });
+    if ($("pAddBtn")) $("pAddBtn").onclick = async () => { const blk = lib[Number($("pAdd").value)]; if (blk) { SESSION.add(S, blk, prepOpts(date)); await redo(S); toast(`已加入：${blk.t}`); } };
+    if ($("pSide")) $("pSide").onclick = () => startSide(date);
+  }
+
+  // ----- 场边模式：按时间线走，到点提醒；结束时记录 RPE 和实际时长（进入负荷监控） -----
+  var SD = { S: null, date: null, timer: null, wake: null, audio: null, voice: true, alerted: -1, ending: false };   // var：show() 早于这里执行时也不会报错
+  const mmss = ms => { const t = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
+  function sideNow() { const r = SD.S.run; return r.paused || Date.now(); }
+  async function sideSave() { try { await savePrep(SD.S); } catch (e) { /* 忽略 */ } }
+  async function keepAwake() {
+    try { if ("wakeLock" in navigator && !SD.wake) { SD.wake = await navigator.wakeLock.request("screen"); SD.wake.addEventListener("release", () => { SD.wake = null; }); } } catch (e) { SD.wake = null; }
+  }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && SD.timer) keepAwake(); });
+  function beep() {
+    try {
+      const ctx = SD.audio; if (!ctx) return;
+      [0, 0.25].forEach(t0 => { const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
+        g.gain.setValueAtTime(0.0001, ctx.currentTime + t0); g.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t0 + 0.2);
+        o.start(ctx.currentTime + t0); o.stop(ctx.currentTime + t0 + 0.22); });
+    } catch (e) { /* 忽略 */ }
+  }
+  function sideSay(text) { try { if (SD.voice && window.speechSynthesis) { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = "zh-CN"; speechSynthesis.speak(u); } } catch (e) { /* 忽略 */ } }
+  async function startSide(date) {
+    if (!window.SESSION || !A.cur) return;
+    // 声音和语音必须在点击的同一时刻创建/解锁（iPhone 的要求），所以放在任何 await 之前
+    try { SD.audio = SD.audio || new (window.AudioContext || window.webkitAudioContext)(); if (SD.audio.state === "suspended") SD.audio.resume(); } catch (e) { SD.audio = null; }
+    try { if (window.speechSynthesis) speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch (e) { /* 忽略 */ }
+    let S = A.cur.sessions && A.cur.sessions[date];
+    if (!S) { S = genPrep(date); await savePrep(S); }
+    if (S.rest || !S.blocks.length) { toast("今天没有训练内容"); return; }
+    SD.S = S; SD.date = date; SD.ending = false;
+    const now = Date.now();
+    if (!S.run || S.run.done) S.run = { idx: 0, t0: now, pauseMs: 0, bStart: now, bPauseMs: 0, paused: null };   // 已有进度（页面被系统关掉后重开）就接着走
+    S.run.idx = Math.min(S.run.idx, S.blocks.length - 1);              // 开始后教练删过内容
+    SD.alerted = -1;
+    await sideSave();
+    show("side");
+    sideSay(`开始：${S.blocks[S.run.idx].t}`);
+    keepAwake();
+    renderSide();
+    clearInterval(SD.timer); SD.timer = setInterval(tickSide, 500);
+  }
+  function stopSide() {
+    if (!SD) return;
+    clearInterval(SD.timer); SD.timer = null;
+    try { if (SD.wake) SD.wake.release(); } catch (e) { /* 忽略 */ }
+    SD.wake = null;
+  }
+  function renderSide() {
+    const S = SD.S, r = S.run, b = S.blocks[r.idx], nx = S.blocks[r.idx + 1], box = $("sideBox");
+    if (!box) return;
+    if (SD.ending) { renderSideEnd(); return; }
+    const PARTS = SESSION.PARTS;
+    box.innerHTML = `<div class="side-top"><span>${r.idx + 1} / ${S.blocks.length}</span><span id="sdTotal"></span></div>
+      <div class="side-prog"><i id="sdProg"></i></div>
+      <p class="eyebrow" style="margin-top:18px">${PARTS[b.kind] ? PARTS[b.kind].name : ""}　计划 ${b.min} 分钟</p>
+      <h2 class="side-t">${esc(b.t)}</h2>
+      <div class="side-clock" id="sdClock">--:--</div>
+      <div class="side-items">${b.items.map(x => `<div>${esc(x)}</div>`).join("")}${b.notes.map(n => `<div class="pn">${esc(n)}</div>`).join("")}</div>
+      <p class="side-next">${nx ? `下一项：${esc(nx.t)}（${nx.min} 分钟）` : "这是最后一项"}</p>
+      <div class="side-ctrl"><button class="btn" id="sdPrev" ${r.idx ? "" : "disabled"}>上一项</button><button class="btn" id="sdPause">${r.paused ? "继续" : "暂停"}</button><button class="btn go" id="sdNext">${nx ? "下一项" : "结束"}</button></div>
+      <div class="side-ctrl"><button class="btn quiet" id="sdVoice">声音：${SD.voice ? "开" : "关"}</button><button class="btn quiet" id="sdEnd">结束训练</button></div>`;
+    const go = async d => {
+      const now = Date.now();
+      if (r.paused) { r.pauseMs += now - r.paused; r.paused = null; }
+      r.idx = Math.max(0, Math.min(S.blocks.length - 1, r.idx + d)); r.bStart = now; r.bPauseMs = 0; SD.alerted = -1;
+      sideSay(`${S.blocks[r.idx].t}`);
+      await sideSave(); renderSide();
+    };
+    $("sdPrev").onclick = () => go(-1);
+    $("sdNext").onclick = () => (nx ? go(1) : (SD.ending = true, renderSide()));
+    $("sdPause").onclick = async () => {
+      const now = Date.now();
+      if (r.paused) { const d = now - r.paused; r.pauseMs += d; r.bPauseMs += d; r.paused = null; } else r.paused = now;
+      await sideSave(); renderSide();
+    };
+    $("sdVoice").onclick = () => { SD.voice = !SD.voice; renderSide(); };
+    $("sdEnd").onclick = () => { SD.ending = true; renderSide(); };
+    tickSide();
+  }
+  function tickSide() {
+    if (!SD.S || SD.ending) return;
+    const S = SD.S, r = S.run, b = S.blocks[r.idx], now = sideNow();
+    const el = now - r.bStart - r.bPauseMs, left = b.min * 60000 - el, tot = now - r.t0 - r.pauseMs;
+    const c = $("sdClock"); if (!c) return;
+    c.textContent = left >= 0 ? mmss(left) : "+" + mmss(-left);
+    c.classList.toggle("over", left < 0); c.classList.toggle("paused", !!r.paused);
+    $("sdTotal").textContent = `已练 ${mmss(tot)}　计划 ${S.total} 分钟`;
+    const done = S.blocks.slice(0, r.idx).reduce((s, x) => s + x.min, 0) * 60000 + Math.min(el, b.min * 60000);
+    $("sdProg").style.width = `${Math.min(100, done / (S.total * 60000) * 100).toFixed(1)}%`;
+    if (left <= 0 && SD.alerted !== r.idx && !r.paused) {
+      SD.alerted = r.idx; beep();
+      const nx = S.blocks[r.idx + 1];
+      sideSay(nx ? `时间到。下一项：${nx.t}` : "时间到，训练结束");
+    }
+  }
+  function renderSideEnd() {
+    const S = SD.S, r = S.run, tot = Math.max(1, Math.round((sideNow() - r.t0 - r.pauseMs) / 60000));
+    const prev = (A.cur.wellness || []).find(x => x.date === SD.date) || {};
+    let rpe = Number.isFinite(prev.rpe) ? prev.rpe : null;
+    $("sideBox").innerHTML = `<p class="eyebrow" style="margin-top:12px">训练结束</p><h2 class="side-t">这堂课有多累？</h2>
+      <p class="lead">RPE：0 = 休息，5 = 吃力，10 = 极限。按整堂课的感觉打分，稍微休息后再打更准。</p>
+      <div class="scale rpe" id="sdRpe">${Array.from({ length: 11 }, (_, n) => `<button data-v="${n}" aria-pressed="${rpe === n}">${n}</button>`).join("")}</div>
+      <label class="side-min">实际时长<input type="number" inputmode="numeric" id="sdMin" value="${tot}" min="1" max="400"><span>分钟（计划 ${S.total}）</span></label>
+      <button class="btn go" id="sdSave" style="width:100%;margin-top:14px">保存</button>
+      <button class="btn quiet" id="sdBack" style="width:100%;margin-top:8px">返回继续训练</button>
+      <p class="lead" style="font-size:12px;margin-top:12px">RPE × 时长 = 这堂课的负荷，进入每周负荷和急慢性负荷比。手表导入的心率可以在“今天”打卡里补充。</p>`;
+    $("sdRpe").querySelectorAll("button").forEach(b => b.onclick = () => { rpe = Number(b.dataset.v); $("sdRpe").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); });
+    $("sdBack").onclick = () => { SD.ending = false; renderSide(); };
+    $("sdSave").onclick = async () => {
+      if (rpe == null) { toast("请选择 RPE"); return; }
+      const a = A.cur, mins = Number($("sdMin").value);
+      a.wellness = SESSION.logSession(a.wellness, SD.date, rpe, mins);
+      S.run.done = true; S.actual = { rpe, minutes: Math.round(mins) };
+      await savePrep(S);
+      stopSide(); SD.ending = false;
+      toast(`已记录：RPE ${rpe} × ${Math.round(mins)} 分钟`);
+      if (viewStack[viewStack.length - 1] === "side") viewStack.pop();   // 返回键不再回到场边模式
+      openAthlete(a.id, "plan");
+    };
   }
 
   // ----- 画像 -----
@@ -1409,7 +1637,6 @@
     if (A.week == null) A.week = now;
     const w = PL.weeks[A.week];
     const phaseColor = { gp: "var(--ph1)", sp: "var(--ph2)", cp: "var(--ph3)", taper: "var(--ph4)" };
-    const t = new Date(todayStr());
     const G = PL.group;
     $("p-plan").innerHTML = `
       ${G ? `<div class="ins"><div class="ar">${esc(G.name)}</div><h4>训练重点</h4><ul>${G.priorities.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
@@ -1420,13 +1647,15 @@
       <div class="phases">${PL.phases.map(p => `<span><i style="background:${phaseColor[p.key]}"></i>${p.name} ${p.weeks} 周</span>`).join("")}<span>斜纹 = 调整周　测 = 测试</span></div>
       <div class="wkhead"><b>第 ${A.week + 1} 周　${w.phaseName}${w.deload ? "　调整周" : ""}</b><span>${w.start.slice(5).replace("-", "/")} 起</span></div>
       <p class="lead" style="margin:-4px 0 12px">${esc(PL.phases.find(p => p.key === w.phase).goal)}${w.deload ? "。本周训练量约为平时的 60%，让身体吸收训练效果" : ""}</p>
-      ${w.days.map(d => { const date = new Date(w.start); date.setDate(date.getDate() + d.dow); const isToday = date.toISOString().slice(0, 10) === todayStr();
-        return `<div class="day ${isToday ? "today-day" : ""}"><div class="dn">${d.day}<small>${date.getMonth() + 1}/${date.getDate()}</small></div><div>${d.blocks.map(b => `<div class="bk"><b>${esc(b.t)}</b>${b.items.map(i => `<div>${esc(i)}</div>`).join("")}</div>`).join("")}</div></div>`; }).join("")}
+      ${w.days.map(d => { const date = COACH.parseYmd(w.start); date.setDate(date.getDate() + d.dow); const isToday = COACH.ymd(date) === todayStr();
+        const ds = COACH.ymd(date), canPrep = window.SESSION && ds >= todayStr() && !d.blocks.every(b => /^休息/.test(b.t)), done = A.cur.sessions && A.cur.sessions[ds];
+        return `<div class="day ${isToday ? "today-day" : ""}"><div class="dn">${d.day}<small>${date.getMonth() + 1}/${date.getDate()}</small>${canPrep ? `<button class="dprep" data-prep="${ds}">${done ? "已备课" : "备课"}</button>` : ""}</div><div>${d.blocks.map(b => `<div class="bk"><b>${esc(b.t)}</b>${b.items.map(i => `<div>${esc(i)}</div>`).join("")}</div>`).join("")}</div></div>`; }).join("")}
       ${PL.focus.length ? `<div class="msg ok" style="margin-top:12px"><b>当前重点：</b>${PL.focus.map(f => (window.BRAIN && BRAIN.CAPS[f] ? BRAIN.CAPS[f].name : f)).join("、")}（来自“画像”页的诊断推理）</div>` : ""}
       ${PL.load ? `<p class="lead" style="font-size:13px;margin-top:12px">负荷自检：本周计划负荷约 ${PL.load.weekly[A.week]}（RPE × 分钟，估算）${PL.load.ratio[A.week] != null ? `，是前几周平均的 ${PL.load.ratio[A.week]} 倍` : ""}。全程最大 ${PL.load.max ?? "–"} 倍（建议 ≤ 1.3）${w.ramp ? `；本周是过渡周，量约为课表的 ${Math.round(w.ramp * 100)}%` : ""}。</p>` : ""}
       <p class="lead" style="font-size:13px;margin-top:12px">计划从 ${esc(PL.start || "")} 开始，按周期化原则排到目标日期，是模板建议，需要教练审核调整。每个测试周录入新成绩后，画像和计划会自动更新。</p>
       <details class="ins" style="padding:10px 18px"><summary style="font-size:13px;color:var(--muted)">依据</summary>${refHtml(PL.refs)}</details>`;
     $("p-plan").querySelectorAll(".wk").forEach(b => b.onclick = () => { A.week = Number(b.dataset.i); renderPlanPane(); });
+    $("p-plan").querySelectorAll("[data-prep]").forEach(b => b.onclick = () => openPrep(b.dataset.prep));
     const nowEl = $("p-plan").querySelector(".wk.now"); if (nowEl) nowEl.scrollIntoView({ block: "nearest", inline: "center" });
   }
 

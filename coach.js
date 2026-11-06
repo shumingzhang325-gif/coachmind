@@ -5,6 +5,9 @@
   const isF = Number.isFinite;
   const r2 = v => Math.round(v * 100) / 100, r1 = v => Math.round(v * 10) / 10;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  // 日期一律用本地日期：toISOString() 是 UTC，北京时间早上 8 点前会变成“昨天”，本地零点的周一会变成“周日”
+  const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const parseYmd = s => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || "")); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(s); };
 
   // ---------------- 文献 ----------------
   const REFS = {
@@ -78,7 +81,8 @@
 
   function recentWellness(a, days = 7) {
     const since = Date.now() - days * 864e5;
-    return (a.wellness || []).filter(w => new Date(w.date).getTime() >= since);
+    // 只算早上的打卡（场边模式结束时只记 RPE 和时长，没有睡眠、疲劳，不能当 0 算）
+    return (a.wellness || []).filter(w => parseYmd(w.date).getTime() >= since && isF(w.sleep) && isF(w.fatigue) && isF(w.soreness));
   }
 
   function profile(a, video) {
@@ -225,7 +229,7 @@
   // 急性/慢性负荷比：最近 7 天 ÷ 之前 21 天（第 8–28 天）的周平均。
   // 不再把最近一周同时算进分子和分母（旧算法的“数学耦合”会人为制造相关，学界对此有批评）；比值只作提醒，不作受伤预测。
   function loadRatio(a, today = new Date()) {
-    const now = today.getTime(), rows = (a.wellness || []).filter(w => w.rpe && w.minutes).map(w => ({ t: new Date(w.date).getTime(), L: w.rpe * w.minutes }));
+    const now = today.getTime(), rows = (a.wellness || []).filter(w => w.rpe && w.minutes).map(w => ({ t: parseYmd(w.date).getTime(), L: w.rpe * w.minutes }));
     if (!rows.length || now - Math.min(...rows.map(r => r.t)) < 21 * 864e5) return null;      // 不足 3 周历史，不计算
     const sum = (d0, d1) => rows.filter(r => now - r.t >= d0 * 864e5 && now - r.t < d1 * 864e5).reduce((s, r) => s + r.L, 0);
     const acute = sum(0, 7), chronic = sum(7, 28) / 3;
@@ -234,16 +238,17 @@
   // 当天状态：打卡满 10 天后和运动员自己的近 30 天正常范围比（平均值 ± 1 个标准差），而不是对所有人用同一条线
   // （参考 HRV4Training 等的“个人正常范围”做法）；不足 10 天时用通用线。睡眠 < 5 小时、酸痛 5 分无论如何都提醒。
   function personal(a, key, today) {
-    const since = today.getTime() - 30 * 864e5, todayStr = today.toISOString().slice(0, 10);
-    const v = (a.wellness || []).filter(w => w.date !== todayStr && new Date(w.date).getTime() >= since && isF(w[key])).map(w => w[key]);
+    const since = today.getTime() - 30 * 864e5, todayStr = ymd(today);
+    const v = (a.wellness || []).filter(w => w.date !== todayStr && parseYmd(w.date).getTime() >= since && isF(w[key])).map(w => w[key]);
     if (v.length < 10) return null;
     const m = v.reduce((t, x) => t + x, 0) / v.length, sd = Math.sqrt(v.reduce((t, x) => t + (x - m) ** 2, 0) / (v.length - 1));
     return { m, sd: Math.max(sd, key === "sleep" ? 0.4 : key === "hrRest" ? 2 : 0.4), n: v.length };
   }
   function readiness(a, today = new Date()) {
-    const todayStr = today.toISOString().slice(0, 10);
+    const todayStr = ymd(today);
     const w = (a.wellness || []).find(x => x.date === todayStr);
-    if (!w) return { level: "none", text: "早上花 10 秒打卡，App 会据此调整当天的训练强度" };
+    // 只有训练后记录（RPE、时长）而没有早上打卡，不能当成“状态良好”
+    if (!w || ![w.sleep, w.fatigue, w.soreness].some(isF)) return { level: "none", text: "早上花 10 秒打卡，App 会据此调整当天的训练强度" };
     const reasons = [];
     const S = personal(a, "sleep", today), Fa = personal(a, "fatigue", today), So = personal(a, "soreness", today), Hr = personal(a, "hrRest", today);
     const mode = S || Fa || So ? "personal" : "general";
@@ -437,11 +442,17 @@
   }
 
   // 当天状态调整：黄色降强度，红色改恢复（原计划不补）
-  const HIGH = /加速|最高速度|速度耐力|力量|爆发|快速伸缩|比赛|乳酸阈|最大摄氧量|冲刺|跳跃|难度|成套|对抗/;
+  const HIGH = /加速|速度|力量|爆发|快速伸缩|比赛|乳酸阈|最大摄氧量|冲刺|跳跃|难度|成套|对抗|变向|敏捷|测试/;
   function adjustDay(day, R) {
     if (!day || !R || R.level === "green" || R.level === "none") return day;
+    // 比赛日不能改期：照常进行，只加提醒（测试可以改天）
+    const race = day.blocks.find(b => /比赛或测试|比赛日/.test(b.t));
+    if (race) return Object.assign({}, day, { adjusted: "race", blocks: day.blocks.map(b => b !== race ? b : { t: b.t, items: [R.level === "red"
+      ? "今天状态差：能否参赛由教练和队医决定；如果只是测试，改到状态好的一天" : "今天状态一般：比赛照常，按固定的赛前热身流程；如果只是测试，可以改天"].concat(b.items) }) });
     if (R.level === "red") return Object.assign({}, day, { adjusted: "red", blocks: [{ t: "恢复（今天状态差）", items: ["灵活性、放松慢跑或游泳 15–20 分钟、软组织放松", "原计划不要挪到之后几天补"] }] });
-    return Object.assign({}, day, { adjusted: "yellow", blocks: day.blocks.map(b => HIGH.test(b.t) ? { t: b.t + "（降强度）", items: ["今天状态一般：量减少约三分之一，强度控制在 80% 以下"].concat(b.items) } : b) });
+    return Object.assign({}, day, { adjusted: "yellow", blocks: day.blocks.map(b => !HIGH.test(b.t) || /^预防：/.test(b.t) ? b
+      : /测试/.test(b.t) ? { t: b.t + "（建议改天）", items: ["今天状态一般：测出来的成绩不代表真实水平，建议改到状态好的一天"].concat(b.items) }
+      : { t: b.t + "（降强度）", items: ["今天状态一般：量减少约三分之一，强度控制在 80% 以下"].concat(b.items) }) });
   }
 
   function plan(a, P, today = new Date(), opts = {}) {
@@ -512,7 +523,7 @@
         if (train.length) prevent.forEach((part, i) => { days[train[(i + 1) % train.length]].blocks.push({ t: "预防：" + INJURY_RULES[part].name, items: [INJURY_RULES[part].prevent] }); });
         // 年龄、训练年限、当前伤病：逐条改写
         days = days.map(d => Object.assign({}, d, { blocks: d.blocks.map(b => ({ t: b.t, items: b.items.map(it => adaptItem(it, F)) })) }));
-        W.push({ index: wi, start: ws.toISOString().slice(0, 10), phase: p.key, phaseName: p.name, deload, test, days });
+        W.push({ index: wi, start: ymd(ws), phase: p.key, phaseName: p.name, deload, test, days });
       }
     });
     // 过渡周：阶段切换（尤其紧接调整周）时负荷会跳升；把这一周的量压到前几周平均的 1.25 倍以内
@@ -536,11 +547,12 @@
     if (weeks < 4 && goal) notes.push(`距离目标只有 ${weeks} 周：只安排赛前期和调整比赛期，不再追求能力大幅提高。`);
     const LC = loadCheck(W);
     if (!LC.ok) notes.push(`负荷自检：第 ${LC.ratio.findIndex(v => v > 1.3) + 1} 周的计划负荷是前几周平均的 ${LC.max} 倍，超过 1.3，请教练调整。`);
-    return { weeks: W, phases, focus, sessions, total: weeks, start: start.toISOString().slice(0, 10), group: G, sport, factors: F, notes, load: LC,
+    return { weeks: W, phases, focus, sessions, total: weeks, start: ymd(start), group: G, sport, factors: F, notes, load: LC,
       refs: G ? ["issurin2010", "gabbett2016"] : ["issurin2010", "haugen2019", "rumpf2016", "gabbett2016"] };
   }
 
   const API = { REFS, ELITE, TESTS, DEFAULT_TARGETS, RT, TAU_DEFAULT, xAt, tAt, vmaxFor100, tauFrom30,
-    latestTests, profile, insights, plan, adjustDay, loadCheck, readiness, loadRatio, focusFromHits, WEEKDAY, PHASES, GROUP_PLANS, INJURY_RULES };
+    latestTests, profile, insights, plan, adjustDay, loadCheck, readiness, loadRatio, focusFromHits, WEEKDAY, PHASES, GROUP_PLANS, INJURY_RULES,
+    LOAD, blockLoad, HIGH, ymd, parseYmd };
   if (typeof module !== "undefined" && module.exports) module.exports = API; else root.COACH = API;
 })(typeof self !== "undefined" ? self : this);
